@@ -14,6 +14,10 @@ const blockRoutes = require("./routes/blockRoutes");
 const commentRoutes = require("./routes/commentRoutes");
 // import attachment endpoints
 const attachmentRoutes = require("./routes/attachmentRoutes");
+// import version endpoints
+const versionRoutes = require("./routes/versionRoutes");
+// import search endpoints
+const searchRoutes = require("./routes/searchRoutes");
 
 // create Express app
 const app = express();
@@ -50,6 +54,10 @@ app.use("api/blocks", blockRoutes);
 app.use("api/comments", commentRoutes);
 // mount attachment routes
 app.use("api/attachments", attachmentRoutes);
+// mount version routes
+app.use("api/versions", versionRoutes);
+// mount search routes
+app.use("api/search", searchRoutes);
 
 // export app so other files can import this Express app
 module.exports = app;

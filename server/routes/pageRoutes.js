@@ -22,14 +22,8 @@ router.use(protect);
 // POST /api/pages
 router.post("/", createPage);
 
-// GET /api/workspaces/:workspaceId
+// GET /api/pages/workspaces/:workspaceId
 router.get("/workspaces/:workspaceId", getPagesByWorkspace);
-
-// PUT /api/pages/permissions/:permissionId
-router.put("/permissions/:permissionId", updatePagePermission);
-
-// DELETE /api/pages/permissions/:permissionId
-router.delete("/permissions/:permissionId", deletePagePermission);
 
 // POST /api/pages/:pageId/permissions
 router.post("/:pageId/permissions", createPagePermission);
@@ -37,13 +31,19 @@ router.post("/:pageId/permissions", createPagePermission);
 // GET /api/pages/:pageId/permissions
 router.get("/:pageId/permissions", getPagePermissionsByPage);
 
+// PUT /api/pages/:pageId/permissions/:permissionId
+router.put("/:pageId/permissions/:permissionId", updatePagePermission);
+
+// DELETE /api/pages/:pageId/permissions/:permissionId
+router.delete("/:pageId/permissions/:permissionId", deletePagePermission);
+
 // PUT /api/pages/:pageId
 router.put("/:pageId", updatePage);
 
 // GET /api/pages/:pageId
 router.get("/:pageId", getPageById);
 
-// PATCH /api/pages/:pageId
+// PATCH /api/pages/:pageId/archive
 router.patch("/:pageId/archive", archivePage);
 
 // DELETE /api/pages/:pageId
