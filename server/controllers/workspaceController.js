@@ -34,7 +34,7 @@ const getMyWorkspaces = async (req, res) => {
         const workspaces = await Workspace.find({ "members.user": req.user._id }).populate("owner", "username email").populate("members.user", "username email");
 
         // 200 = success
-        return res.status(200).json("Here is the list of workspaces:", workspaces);
+        return res.status(200).json(workspaces);
     } catch (error) {
         // 500 = internal error
         return res.status(500).json({ message: "Failed to fetch user's workspaces", error: error.message });
@@ -159,7 +159,7 @@ const addWorkspaceMember = async (req, res) => {
             }
         }
         if (isMember) {
-            return res.status(409).json({ message: "User is already a workspace member"});
+            return res.status(409).json({ message: "User is already a member of workspace"});
         }
 
         // push user into members list
