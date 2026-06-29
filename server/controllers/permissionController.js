@@ -1,4 +1,4 @@
-const PagePermission = require("../models/PagePermission");
+const PagePermission = require("../models/Permission");
 const Page = require("../models/Page");
 
 /**

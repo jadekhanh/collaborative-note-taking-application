@@ -1,6 +1,6 @@
 const Page = require("../models/Page");
 const Block = require("../models/Block");
-const PagePermission = require("../models/PagePermission");
+const PagePermission = require("../models/Permission");
 const Workspace = require("../models/Workspace");
 
 /**
