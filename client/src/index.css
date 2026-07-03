@@ -1,0 +1,359 @@
+/* Set total box width to always stay 100px */
+* {
+  box-sizing: border-box;
+}
+
+/* Webpage body */
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #d28a8c;
+  /* text color */
+  color: #222;
+}
+
+/* Button */
+button {
+  /* cursor becomes the hand at clickable button */
+  cursor: pointer;
+}
+
+/* Input, text area, dropdown menu, button uses the same font as body */
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
+
+/* Auth page (login, register pages) is centered in the entire screen */
+.auth-page {
+  /* entire screen height */
+  min-height: 100vh;
+  /* flexbox arranges things */
+  display: flex;
+  /* center vertically */
+  align-items: center;
+  /* center horizontally */
+  justify-content: center;
+}
+
+/* Auth card for login and register pages */
+.auth-card {
+  width: 360px;
+  padding: 32px;
+  background: #eebec6;
+  border: 1px solid #ffd9cc;
+  /* border edge is slightly round */
+  border-radius: 12px;
+  display: flex;
+  /* arrange children (email password button) vertically */
+  flex-direction: column;
+  /* space between children */
+  gap: 14px;
+}
+
+/* Heading h1 for Auth card */
+.auth-card h1 {
+  margin: 0 0 8px;
+}
+
+/* Input for Auth card */
+.auth-card input {
+  padding: 12px;
+  border: 1px solid #ffd9cc;
+  /* border edge is slightly round */
+  border-radius: 8px;
+}
+
+/* Auth card */
+.auth-card {
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  background: #ffd9cc;
+  /* text color */
+  color: #666;
+}
+
+/* Error */
+.error {
+  color: #c0392b;
+  margin: 0;
+}
+
+/* Dashboard page */
+.dashboard-page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 40px;
+}
+
+/* Dashboard header */
+.dashboard-header {
+  display: flex;
+  /* center horizontally */
+  justify-content: center;
+  /* items are centered */
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+/* Dashboard header h1 */
+.dashboard-header h1 {
+  margin: 0;
+}
+
+/* Dashboard header p */
+.dashboard-header p {
+  margin: 6px 0 0;
+  color: #666;
+}
+
+/* Dashboard header, workspace form, empty editor buttons */
+.dashboard-header button,
+.workspace-form button,
+.empty-editor button {
+  padding: 10px 14px;
+  border: none;
+  border-radius: 8px;
+  background: #f7e5ec;
+  color: #666;
+}
+
+/* Workspace form */
+.workspace-form {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+/* Workspace form input */
+.workspace-form input {
+  flex: 1;
+  padding: 12px;
+  border: 1px solid #ffd9cc;
+  border-radius: 8px;
+}
+
+/* Workspace grid */
+.workspace-grid {
+  display: grid;
+  /* fits as many cols as possibly into row without breaking the min width rule
+    min size = 220px, max size = 1fr
+   */
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+/* Workspace card */
+.workspace-card {
+  text-align: left;
+  padding: 20px;
+  border: 1px solid #eebec6;
+  background: white;
+  border-radius: 12px;
+}
+
+/* Workspace card h2 */
+.workspace-card h2 {
+  margin: 0 0 8px;
+}
+
+/* Workspace card p */
+.workspace-card p {
+  margin: 0;
+  color: #666;
+}
+
+/* Workspace page */
+.workspace-page {
+  height: 100vh;
+  display: flex;
+}
+
+/* Workspace main */
+.workspace-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px;
+}
+
+/* Empty editpr */
+.empty-editor {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 280px;
+  height: 100vh;
+  background: #eebec6;
+  border-right: 1px solid #ffd9cc;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+/* Sidebar header */
+.sidebar-header h2 {
+  margin: 0 0 16px;
+  font-size: 18px;
+}
+
+/* New Page button */
+.new-page-button {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  background: #222;
+  color: white;
+  margin-bottom: 16px;
+}
+
+/* Sidebar */
+.sidebar-page {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* Sidebar selected pages */
+.sidebar-page:hover,
+.sidebar-page.active {
+  background: #f7e5ec;
+}
+
+/* Pages on Sidebar */
+.sidebar-page button {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+}
+
+/* Empty sidebar */
+.sidebar-empty {
+  color: #f7e5ec;
+}
+
+/* Editor */
+.editor {
+  max-width: 850px;
+  margin: 0 auto;
+}
+
+/* Editor actions */
+.editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+/* Page action buttons and Add Block button */
+.editor-actions button,
+.add-block-button {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  background: #f7e5ec;
+  color: white;
+}
+
+/* Page title */
+.editor-title {
+  width: 100%;
+  font-size: 42px;
+  font-weight: bold;
+  border: none;
+  outline: none;
+  background: transparent;
+  margin-bottom: 28px;
+}
+
+/* Block */
+.block {
+  margin-bottom: 14px;
+}
+
+/* Block controls */
+.block-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+/* Block dropdown menu */
+.block-controls select,
+.block-controls button {
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+/* Block input */
+.block-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  resize: vertical;
+  min-height: 32px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+/* Block heading */
+.block-heading {
+  font-size: 30px;
+  font-weight: bold;
+}
+
+/* Block subheading */
+.block-subheading {
+  font-size: 22px;
+  font-weight: bold;
+}
+
+/* Code block */
+.block-code {
+  background: #eee;
+  padding: 12px;
+  border-radius: 8px;
+  font-family: monospace;
+}
+
+/* Quote block */
+.block-quote {
+  border-left: 4px solid #f9d4b2;
+  padding-left: 12px;
+  color: #555;
+}
+
+/* Bullets for checklist inside Editor */
+.bullet-row,
+.checklist-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Button to add block */
+.add-block-button {
+  margin-top: 16px;
+}
+
+/* Presence bar that displays active users inside page */
+.presence-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  color: #555;
+  font-size: 14px;
+}
