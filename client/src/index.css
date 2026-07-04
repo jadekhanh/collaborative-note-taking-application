@@ -459,3 +459,113 @@ button {
   gap: 8px;
   margin-bottom: 16px;
 }
+
+/* Comments panel */
+.comments-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 380px;
+  height: 100vh;
+  background: white;
+  border-left: 1px solid #ddd;
+  padding: 20px;
+  z-index: 80;
+  overflow-y: auto;
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.12);
+}
+
+/* Comments panel header */
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Comments panel button */
+.panel-header button {
+  border: none;
+  background: transparent;
+  font-size: 24px;
+}
+
+/* Comment form */
+.comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+/* Text area for new comment form */
+.comment-form textarea {
+  min-height: 80px;
+  padding: 10px;
+  resize: vertical;
+}
+
+/* Buttons for new comment thread form, reply thread form, thread actions */
+.comment-form button,
+.reply-form button,
+.thread-actions button {
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: #222;
+  color: white;
+}
+
+/* Reply thread card */
+.thread-card {
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+/* Reply card resolved */
+.thread-card.resolved {
+  opacity: 0.55;
+}
+
+/* Reply thread meta */
+.thread-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #666;
+  font-size: 13px;
+}
+
+/* Thread reply card */
+.reply-card {
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 8px;
+  margin: 8px 0;
+}
+
+/* Thread reply card p */
+.reply-card p {
+  margin: 4px 0 0;
+}
+
+/* Form for thread reply */
+.reply-form {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+/* Input text box for thread reply */
+.reply-form input {
+  flex: 1;
+  padding: 8px;
+}
+
+/* Actions for comment threads panel */
+.thread-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}

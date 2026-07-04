@@ -36,7 +36,7 @@ const workspaceSchema = new mongoose.Schema(
     name: {
       type: String,
       required: [true, "Workspace name is required"],
-      trim: true, // remove spaces if workspace name has spaces
+      trim: true, // remove leading and trailing spaces
       maxLength: 20,
     },
     // each workspace has an owner

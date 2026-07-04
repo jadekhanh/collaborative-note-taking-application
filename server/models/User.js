@@ -12,14 +12,14 @@ const userSchema = new mongoose.Schema(
     username: {
       type: String,
       required: [true, "Username is required"],
-      trim: true, // removes spaces if user types a username with spaces
+      trim: true, // removes leading and trailing spaces
       minlength: 2,
       maxlength: 20,
     },
     email: {
       type: String,
       required: [true, "Email is required"],
-      trim: true,
+      trim: true, // removes leading and trailing spaces
       unique: true,
       lowercase: true,
     },

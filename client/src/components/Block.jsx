@@ -3,8 +3,9 @@
  * @param: block - block data
  * @param: onUpdate - function from Editor to update this block
  * @param: onDelete - function from Editor to delete this block
+ * @param: onComment - function to add comment to the block
  */
-const Block = ({ block, onUpdate, onDelete }) => {
+const Block = ({ block, onUpdate, onDelete, onComment }) => {
   // get block text; if not exists, use ""
   const text = block.content?.text || "";
 
@@ -150,6 +151,9 @@ const Block = ({ block, onUpdate, onDelete }) => {
           <option value="code">Code</option>
           <option value="quote">Quote</option>
         </select>
+
+        {/* button to add comment to block */}
+        <button onClick={() => onComment(block._id)}>Comment</button>
 
         {/* button to delete block */}
         <button onClick={() => onDelete(block._id)}>Delete</button>

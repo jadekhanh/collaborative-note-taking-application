@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import Block from "./Block";
 import VersionModal from "./modals/VersionModal";
+import CommentsPanel from "./panels/CommentsPanel";
 
 /**
  * Create the Editor component to edit the page content
@@ -33,6 +34,10 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
   const [error, setError] = useState("");
   // state to store boolean if version modal is opened
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
+  // state to check if comment panel is opened
+  const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+  // state to set block to add comment
+  const [selectedCommentBlockId, setSelectedCommentBlockId] = useState(null);
 
   /**
    * Set page and title and blocks whenever pageId is rendered
@@ -350,6 +355,24 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
         <button onClick={archivePage}>Archive Page</button>
         {/* a button to delete page */}
         <button onClick={deletePage}>Delete Page</button>
+        {/* a button to add comments to page */}
+        <button
+          onClick={() => {
+            setSelectedCommentBlockId(null);
+            setIsCommentsOpen(true);
+          }}
+        >
+          Page Comments
+        </button>
+        <CommentsPanel
+          pageId={pageId}
+          blockId={selectedCommentBlockId}
+          isOpen={isCommentsOpen}
+          onClose={() => {
+            setIsCommentsOpen(false);
+            setSelectedCommentBlockId(null);
+          }}
+        />
       </div>
 
       {/* page title */}
@@ -372,6 +395,10 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
             // pass callbacks for blocks
             onUpdate={updateBlock}
             onDelete={deleteBlock}
+            onComment={(blockId) => {
+              setSelectedCommentBlockId(blockId);
+              setIsCommentsOpen(true);
+            }}
           />
         ))}
       </div>

@@ -35,6 +35,7 @@ const blockSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       // empty object
       default: {},
+      trim: true, // removes leading and trailing spaces
     },
     // order of a block inside a page
     order: {

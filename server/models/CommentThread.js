@@ -17,6 +17,7 @@ const replySchema = new mongoose.Schema(
       type: String,
       required: [true, "Reply content is required"],
       maxLength: 2000,
+      trim: true,
     },
     // automatically create createdAt and updatedAt
   },
@@ -40,7 +41,7 @@ const commentThreadSchema = new mongoose.Schema(
     block: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Block",
-      required: true,
+      default: null,
     },
     // stores MongoDB that refers to the User model, not the whole User object
     author: {
@@ -53,6 +54,7 @@ const commentThreadSchema = new mongoose.Schema(
       type: String,
       required: [true, "Comment content is required"],
       maxLength: 2000,
+      trim: true,
     },
     // comment thread replies
     replies: [replySchema],
