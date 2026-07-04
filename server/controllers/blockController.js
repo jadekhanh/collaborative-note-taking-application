@@ -1,6 +1,6 @@
 const Block = require("../models/Block");
 const Page = require("../models/Page");
-const PagePermission = require("../models/PagePermission");
+const PagePermission = require("../models/Permission");
 
 /**
  * Check if current user has access to page
@@ -44,7 +44,7 @@ const createBlock = async (req, res) => {
     }
 
     // create a block
-    const block = Block.create({
+    const block = await Block.create({
       page: pageId,
       type: type,
       content: content,
@@ -80,7 +80,7 @@ const getBlocksByPage = async (req, res) => {
     }
 
     // get page's blocks in ascending order
-    const blocks = Block.find({ page: pageId }).sort({ order: 1 });
+    const blocks = await Block.find({ page: pageId }).sort({ order: 1 });
 
     return res.status(200).json({ blocks });
   } catch (error) {

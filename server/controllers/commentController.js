@@ -1,9 +1,9 @@
-const Comment = require("../models/Comment");
+const CommentThread = require("../models/CommentThread");
 const Page = require("../models/Page");
-const PagePermission = require("../models/PagePermission");
+const PagePermission = require("../models/Permission");
 
 /**
- * Check if this user has permission to page
+ * Check if current user has access to page
  */
 const checkPageMembership = async (pageId, userId) => {
   // get page
@@ -28,186 +28,265 @@ const checkPageMembership = async (pageId, userId) => {
 };
 
 /**
- * Create a comment
+ * Create a comment thread
  */
-const createComment = async (req, res) => {
+const createCommentThread = async (req, res) => {
   try {
     // get pageId, blockId, content from req body
-    const { pageId, blockId, content } = req.body;
+    const { pageId, blockId, block, content } = req.body;
+    const resolvedBlockId = blockId || block;
 
-    // check if this user has permission to page
+    if (!pageId || !resolvedBlockId || !content) {
+      return res.status(400).json({
+        message: "pageId, blockId, and content are required",
+      });
+    }
+
+    // check if current user can access this page
     const isPermitted = await checkPageMembership(pageId, req.user._id);
     if (!isPermitted) {
-      // 403 = access denied
-      return res
-        .status(403)
-        .json({ message: "Do not have permission to create comment" });
+      return res.status(403).json({
+        message: "Do not have permission to create comment thread on page",
+      });
     }
 
-    // create comment
-    const comment = await Comment.create({
+    // create a comment thread
+    const thread = await CommentThread.create({
       page: pageId,
-      block: blockId,
+      block: resolvedBlockId,
       author: req.user._id,
-      content: content,
+      content,
     });
 
-    // replace author with username and email for readiability
-    await comment.populate("author", "username email");
+    await thread.populate("author", "username email");
 
     return res
-      .status(200)
-      .json({ message: "Successfully create comment", comment });
+      .status(201)
+      .json({ message: "Successfully create comment thread", thread });
   } catch (error) {
-    // 500 = internal error
-    return res
-      .status(500)
-      .json({ message: "Failed to create comment", error: error.message });
+    return res.status(500).json({
+      message: "Failed to create comment thread",
+      error: error.message,
+    });
   }
 };
 
 /**
- * Get all comments by page
+ * Get comment threads by page
  */
-const getCommentsByPage = async (req, res) => {
+const getCommentThreadsByPage = async (req, res) => {
   try {
-    // extract pageId from req params
+    // get pageId from req params
     const { pageId } = req.params;
 
-    // get all comments by page sorted by createdAt in ascending order
-    // replace author with username and email for readiability
-    const comments = await Comment.findById({ page: pageId })
-      .populate("author", "username email")
-      .sort({
-        createdAt: 1,
-      });
-
-    return res.status(200).json({ comments });
-  } catch (error) {
-    // 500 = internal error
-    return res
-      .status(500)
-      .json({ message: "Failed to fetch comments", error: error.message });
-  }
-};
-
-/**
- * Resolve a comment
- */
-const resolveComment = async (req, res) => {
-  try {
-    // extract commentId from req params
-    const { commentId } = req.params;
-
-    // get comment
-    const comment = await Comments.findById(commentId);
-    if (!comment) {
-      return res.status(404).json({ message: "Comment not found" });
-    }
-
-    // check if this user has permission to page
-    const isPermitted = await checkPageMembership(comment.page, req.user._id);
+    // check if current user can access this page
+    const isPermitted = await checkPageMembership(pageId, req.user._id);
     if (!isPermitted) {
-      // 403 = access denied
-      return res
-        .status(403)
-        .json({ message: "Do not have permission to resolve the comment" });
+      return res.status(403).json({
+        message: "Do not have permission to get comment threads on page",
+      });
     }
 
-    comment.isResolved = true;
-    await comment.save();
+    // get comment threads
+    const threads = await CommentThread.find({ page: pageId })
+      .sort({ createdAt: -1 })
+      .populate("author", "username email")
+      .populate("replies.author", "username email");
 
-    return res
-      .status(200)
-      .json({ message: "Successfully resolve comment", comment });
+    return res.status(200).json({ threads });
   } catch (error) {
-    // 500 = internal error
-    return res
-      .status(500)
-      .json({ message: "Failed to resolve comment", error: error.message });
+    return res.status(500).json({
+      message: "Failed to get comment threads by page",
+      error: error.message,
+    });
   }
 };
 
 /**
- * Update a comment
+ * Add reply to comment thread
  */
-const updateComment = async (req, res) => {
+const addReplyToCommentThread = async (req, res) => {
   try {
-    // extract commentId from req params
-    const { commentId } = req.params;
-    // extract content from req body
+    // get threadId from req params
+    const { threadId } = req.params;
+    // get content from req body
     const { content } = req.body;
 
-    // get comment
-    const comment = await Comments.findById(commentId);
-    if (!comment) {
-      return res.status(404).json({ message: "Comment not found" });
+    // get thread
+    const thread = await CommentThread.findById(threadId);
+    if (!thread) {
+      return res.status(404).json({ message: "Comment thread not found" });
     }
 
-    // check if this user has permission to page
-    const isPermitted = await checkPageMembership(comment.page, req.user._id);
+    // check if current user can access this page
+    const isPermitted = await checkPageMembership(
+      thread.page._id,
+      req.user._id,
+    );
     if (!isPermitted) {
-      // 403 = access denied
-      return res
-        .status(403)
-        .json({ message: "Do not have permission to update comment" });
+      return res.status(403).json({
+        message:
+          "Do not have permission to add reply to comment threads on page",
+      });
     }
 
-    comment.content = content;
-    await comment.save();
+    // add new reply to thread
+    thread.replies.push({ author: req.user._id, content: content });
+    await thread.save();
+    await thread.populate("author", "username email");
+    await thread.populate("replies.author", "username email");
 
     return res
-      .status(200)
-      .json({ message: "Successfully update comment", comment });
+      .status(201)
+      .json({ message: "Successfully add reply to comment thread", thread });
   } catch (error) {
-    // 500 = internal error
-    return res
-      .status(500)
-      .json({ message: "Failed to update comment", error: error.message });
+    return res.status(500).json({
+      message: "Failed to add reply to comment thread",
+      error: error.message,
+    });
   }
 };
 
 /**
- * Delete a comment
+ * Update comment thread
  */
-const deleteComment = async (req, res) => {
+const updateCommentThread = async (req, res) => {
   try {
-    // extract commentId from req params
-    const { commentId } = req.params;
+    // get threadId from req params
+    const { threadId } = req.params;
+    // get content from req body
+    const { content } = req.body;
 
-    // get comment
-    const comment = await Comments.findById(commentId);
-    if (!comment) {
-      return res.status(404).json({ message: "Comment not found" });
+    // get thread
+    const thread = await CommentThread.findById(threadId);
+    if (!thread) {
+      return res.status(404).json({ message: "Comment thread not found" });
     }
 
-    // check if this user has permission to page
-    const isPermitted = await checkPageMembership(comment.page, req.user._id);
+    // check if current user can access this page
+    const isPermitted = await checkPageMembership(
+      thread.page._id,
+      req.user._id,
+    );
     if (!isPermitted) {
-      // 403 = access denied
+      return res.status(403).json({
+        message: "Do not have permission to update comment threads on page",
+      });
+    }
+
+    // check if current user is the author of the comment thread
+    if (req.user._id.toString() !== thread.author._id.toString()) {
       return res
         .status(403)
-        .json({ message: "Do not have permission to delete comment" });
+        .json({ message: "Only author can update comment thread" });
     }
 
-    await comment.deleteOne();
+    // update comment thread content
+    thread.content = content;
+    await thread.save();
 
     return res
       .status(200)
-      .json({ message: "Successfully delete comment", comment });
+      .json({ message: "Successfully update comment thread", thread });
   } catch (error) {
-    // 500 = internal error
-    return res
-      .status(500)
-      .json({ message: "Failed to delete comment", error: error.message });
+    return res.status(500).json({
+      message: "Failed to update comment thread",
+      error: error.message,
+    });
   }
 };
 
-// export functions
+/**
+ * Resolve comment thread
+ */
+const resolveCommentThread = async (req, res) => {
+  try {
+    // get threadId from req params
+    const { threadId } = req.params;
+
+    // get thread
+    const thread = await CommentThread.findById(threadId);
+    if (!thread) {
+      return res.status(404).json({ message: "Comment thread not found" });
+    }
+
+    // check if current user can access this page
+    const isPermitted = await checkPageMembership(
+      thread.page._id,
+      req.user._id,
+    );
+    if (!isPermitted) {
+      return res.status(403).json({
+        message: "Do not have permission to resolve comment threads on page",
+      });
+    }
+
+    // resolve comment thread
+    thread.isResolved = true;
+    await thread.save();
+
+    return res
+      .status(200)
+      .json({ message: "Successfully resolve comment thread", thread });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to resolve comment thread",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Delete comment thread
+ */
+const deleteCommentThread = async (req, res) => {
+  try {
+    // get threadId from req params
+    const { threadId } = req.params;
+
+    // get thread
+    const thread = await CommentThread.findById(threadId);
+    if (!thread) {
+      return res.status(404).json({ message: "Comment thread not found" });
+    }
+
+    // check if current user can access this page
+    const isPermitted = await checkPageMembership(
+      thread.page._id,
+      req.user._id,
+    );
+    if (!isPermitted) {
+      return res.status(403).json({
+        message: "Do not have permission to delete comment threads on page",
+      });
+    }
+
+    // check if current user is the author of the comment thread
+    if (req.user._id.toString() !== thread.author._id.toString()) {
+      return res
+        .status(403)
+        .json({ message: "Only author can delete comment thread" });
+    }
+
+    // delete thread
+    await thread.deleteOne();
+
+    return res
+      .status(200)
+      .json({ message: "Successfully delete comment thread" });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to delete comment thread",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
-  createComment,
-  deleteComment,
-  resolveComment,
-  updateComment,
-  getCommentsByPage,
+  createCommentThread,
+  getCommentThreadsByPage,
+  addReplyToCommentThread,
+  updateCommentThread,
+  resolveCommentThread,
+  deleteCommentThread,
 };

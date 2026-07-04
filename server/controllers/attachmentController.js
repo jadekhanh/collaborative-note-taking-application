@@ -1,6 +1,6 @@
 const Attachment = require("../models/Attachment");
 const Page = require("../models/Page");
-const PagePermission = require("../models/PagePermission");
+const PagePermission = require("../models/Permission");
 
 /**
  * Check if this user has permission to page

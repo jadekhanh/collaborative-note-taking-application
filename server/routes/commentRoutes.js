@@ -1,10 +1,11 @@
 const express = require("express");
 const {
-  createComment,
-  deleteComment,
-  resolveComment,
-  updateComment,
-  getCommentsByPage,
+  createCommentThread,
+  getCommentThreadsByPage,
+  addReplyToCommentThread,
+  updateCommentThread,
+  resolveCommentThread,
+  deleteCommentThread,
 } = require("../controllers/commentController");
 const { protect } = require("../middleware/authMiddleware");
 
@@ -12,19 +13,22 @@ const router = express.Router();
 
 router.use(protect);
 
-// POST /api/comments
-router.post("/", createComment);
+// POST /api/comments/threads
+router.post("/threads", createCommentThread);
 
-// GET /api/comments/page/:pageId
-router.get("/page/:pageId", getCommentsByPage);
+// GET /api/comments/:pageId/threads
+router.get("/page/:pageId/threads", getCommentThreadsByPage);
 
-// PUT /api/comments/:commentId
-router.put("/:commentId", updateComment);
+// POST /api/comments/threads/:threadId/replies
+router.post("/threads/:threadId/replies", addReplyToCommentThread);
 
-// PUT /api/comments/:commentId/resolve
-router.put("/:commentId/resolve", resolveComment);
+// PUT /api/comments/threads:commentId
+router.put("/threads/:threadId", updateCommentThread);
 
-// DELETE /api/comments/:commentId
-router.delete("/:commentId", deleteComment);
+// PATCH /api/comments/threads/:threadId/resolve
+router.patch("/threads/:threadId/resolve", resolveCommentThread);
+
+// DELETE /api/comments/threads/:threadId
+router.delete("/threads/:threadId", deleteCommentThread);
 
 module.exports = router;

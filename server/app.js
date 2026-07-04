@@ -49,15 +49,15 @@ app.use("/api/workspaces", workspaceRoutes);
 // mount page routes
 app.use("/api/pages", pageRoutes);
 // mount block routes
-app.use("api/blocks", blockRoutes);
+app.use("/api/blocks", blockRoutes);
 // mount comment routes
-app.use("api/comments", commentRoutes);
+app.use("/api/comments", commentRoutes);
 // mount attachment routes
-app.use("api/attachments", attachmentRoutes);
+app.use("/api/attachments", attachmentRoutes);
 // mount version routes
-app.use("api/versions", versionRoutes);
+app.use("/api/versions", versionRoutes);
 // mount search routes
-app.use("api/search", searchRoutes);
+app.use("/api/search", searchRoutes);
 
 // export app so other files can import this Express app
 module.exports = app;

@@ -1,6 +1,30 @@
 const mongoose = require("mongoose");
 
 /**
+ * Workspace Member schema represents members in the workspace
+ * Similar to Cart items in Cart in my marketplace project
+ */
+const workspaceMemberSchema = new mongoose.Schema(
+  {
+    // each member has a user field
+    // stores MongoDB ID which refers to User model, not whole user object
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    // each member has a role
+    role: {
+      type: String,
+      enum: ["OWNER", "EDITOR", "VIEWER"],
+      default: "EDITOR",
+    },
+  },
+  // do not create seperate _id for member objects
+  { _id: false },
+);
+
+/**
  * Workspace schema = @Entity Workspace in Spring Boot
  * A workspace has:
  * 1. owner: User
@@ -26,30 +50,6 @@ const workspaceSchema = new mongoose.Schema(
   },
   // automatically creates createdAt and updatedAt
   { timestamps: true },
-);
-
-/**
- * Workspace Member schema represents members in the workspace
- * Similar to Cart items in Cart in my marketplace project
- */
-const workspaceMemberSchema = new mongoose.Schema(
-  {
-    // each member has a user field
-    // stores MongoDB ID which refers to User model, not whole user object
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
-    // each member has a role
-    role: {
-      type: String,
-      enum: ["OWNER", "EDITOR", "VIEWER"],
-      default: "EDITOR",
-    },
-  },
-  // do not create seperate _id for member objects
-  { _id: false },
 );
 
 // exports Workspace model
