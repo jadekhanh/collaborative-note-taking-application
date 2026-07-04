@@ -179,7 +179,7 @@ button {
   padding: 32px;
 }
 
-/* Empty editpr */
+/* Empty editor */
 .empty-editor {
   height: 100%;
   display: flex;
@@ -248,13 +248,6 @@ button {
 .editor {
   max-width: 850px;
   margin: 0 auto;
-}
-
-/* Editor actions */
-.editor-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 16px;
 }
 
 /* Page action buttons and Add Block button */
@@ -356,4 +349,113 @@ button {
   margin-bottom: 16px;
   color: #555;
   font-size: 14px;
+}
+
+/* Search and Version modals backdrop */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+/* Search and Version modals */
+.modal {
+  width: 560px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+
+/* Headers for Search and Version modals */
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+/* H2 headers for Search and Version modals */
+.modal-header h2 {
+  margin: 0;
+}
+
+/* Buttons for Search and Version modals */
+.modal-header button {
+  border: none;
+  background: transparent;
+  font-size: 24px;
+}
+
+/* Input boxes for Search modal */
+.modal-input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #ffd9cc;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+/* Result for Search modals */
+.search-result {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  border: none;
+  background: #f9d4b2;
+  padding: 10px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+/* Button to save page version */
+.save-button {
+  padding: 10px 14px;
+  border: none;
+  border-radius: 8px;
+  background: #222;
+  color: white;
+  margin-bottom: 16px;
+}
+
+/* Version card */
+.version-card {
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+/* Version card p */
+.version-card p {
+  margin: 4px 0;
+}
+
+/* Search button for Search modal */
+.search-button {
+  position: fixed;
+  top: 16px;
+  right: 24px;
+  z-index: 50;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  background: #222;
+  color: white;
+}
+
+/* Editor actions buttons */
+.editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 16px;
 }

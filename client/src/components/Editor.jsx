@@ -3,6 +3,7 @@ import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import Block from "./Block";
+import VersionModal from "./modals/VersionModal";
 
 /**
  * Create the Editor component to edit the page content
@@ -30,6 +31,8 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
   const [activeUsers, setActiveUsers] = useState([]);
   // state to store the error message
   const [error, setError] = useState("");
+  // state to store boolean if version modal is opened
+  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
 
   /**
    * Set page and title and blocks whenever pageId is rendered
@@ -294,6 +297,22 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
   };
 
   /**
+   * Restore a page version
+   * @param {*} restoredPage
+   * @param {*} restoredBlocks
+   */
+  const restoreVersion = (restoredPage, restoredBlocks) => {
+    // set page as restored page
+    setPage(restoredPage);
+    // set page title as restored page title
+    setTitle(restoredPage.title);
+    // set blocks as restored blocks
+    setBlocks(restoredBlocks);
+    // let Workspace know that restored page just gets updated
+    onPageUpdated(restoredPage);
+  };
+
+  /**
    * While a page is loading, display loading message
    */
   if (!page) {
@@ -317,6 +336,16 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
 
       {/* page action bar */}
       <div className="editor-actions">
+        {/* a button to open Version modal */}
+        <VersionModal
+          isOpen={isVersionModalOpen}
+          onClose={() => setIsVersionModalOpen(false)}
+          pageId={pageId}
+          onRestore={restoreVersion}
+        />
+        <button onClick={() => setIsVersionModalOpen(true)}>
+          Version History
+        </button>
         {/* a button to archive page */}
         <button onClick={archivePage}>Archive Page</button>
         {/* a button to delete page */}

@@ -16,6 +16,7 @@ import { useParams } from "react-router-dom";
 import { api } from "../api/axios";
 import { Editor } from "../components/Editor";
 import { Sidebar } from "../components/Sidebar";
+import SearchModal from "../components/modals/SearchModal";
 
 /**
  * React component = a function that returns UI
@@ -28,12 +29,14 @@ const Workspace = () => {
 
   // set workspace information { id, name, members }; null at first
   const [workspace, setWorkspace] = useState(null);
-  // set workspace pages; [] at first
+  // set workspace pages state; [] at first
   const [pages, setPages] = useState([]);
   // set which page is currently open; null at first
   const [selectedPageId, setSelectedPageId] = useState();
-  // set error
+  // set error error
   const [error, setError] = useState();
+  // set Search modal state
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   // useEffect() = run the following code whenever the component loads or when specified dependencies change
   useEffect(() => {
@@ -139,6 +142,16 @@ const Workspace = () => {
   // return page UI
   return (
     <div className="workspace-page">
+      {/* Search button to start page and block search */}
+      <button className="search-button" onClick={() => setIsSearchOpen(true)}>
+        Search
+      </button>
+      <SearchModal
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(close)}
+        onSelectPage={selectedPageId}
+      />
+
       {/* create sidebar */}
       <Sidebar
         // pass workspace
