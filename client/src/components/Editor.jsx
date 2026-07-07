@@ -17,6 +17,7 @@ import { useSocket } from "../context/SocketContext";
 import useAutosave from "../hooks/useAutosave";
 import Block from "./Block";
 import VersionModal from "./modals/VersionModal";
+import AttachmentsPanel from "./panels/AttachmentsPanel";
 import CommentsPanel from "./panels/CommentsPanel";
 
 /**
@@ -47,10 +48,12 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
   const [error, setError] = useState("");
   // state to store boolean if version modal is opened
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
-  // state to check if comment panel is opened
+  // state to open comment panel
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
   // state to set block to add comment
   const [selectedCommentBlockId, setSelectedCommentBlockId] = useState(null);
+  // state to open attachment panel
+  const [isAttachmentsOpen, setIsAttachmentsOpen] = useState(false);
 
   /**
    * Create sensors into one object
@@ -493,6 +496,14 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
           }}
         />
       </div>
+
+      {/* button to open attachment panel */}
+      <button onClick={() => setIsAttachmentsOpen(true)}>Attachments</button>
+      <AttachmentsPanel
+        pageId={pageId}
+        isOpen={isAttachmentsOpen}
+        onClose={() => setIsAttachmentsOpen(false)}
+      />
 
       {/* page title */}
       <input

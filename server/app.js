@@ -34,6 +34,8 @@ app.use(
 
 // allows the app to understands JSON
 app.use(express.json());
+// allows server to serve static files like images/pdfs from local folder "uploads"
+app.use("/uploads", express.static("uploads"));
 
 // health check route: when user visits http://localhost:5001, this route will execute
 app.get("/", (req, res) => {

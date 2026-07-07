@@ -605,3 +605,69 @@ button {
 .block {
   background: transparent;
 }
+
+/* Attachment panel */
+.attachments-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 380px;
+  height: 100vh;
+  background: white;
+  border-left: 1px solid #eebec6;
+  padding: 20px;
+  z-index: 80;
+  overflow-y: auto;
+  box-shadow: -8px 0 30px eebec6(0, 0, 0, 0.12);
+}
+
+/* Input form to upload attachment */
+.attachment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+/* Input in form to upload attachment */
+.attachment-form input {
+  padding: 9px;
+  border: 1px solid #eebec6;
+  border-radius: 6px;
+}
+
+/* Submit button inside Attachment panel */
+.attachment-form button {
+  padding: 9px;
+  border: none;
+  border-radius: 6px;
+  background: #eebec6;
+  color: white;
+}
+
+/* Attachment panel */
+.attachment-card {
+  border: 1px solid #eebec6;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Attachment panel */
+.attachment-card p {
+  margin: 4px 0 0;
+  color: #eebec6;
+  font-size: 13px;
+}
+
+/* Attachment panel button */
+.attachment-card button {
+  border: none;
+  background: #eebec6;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
