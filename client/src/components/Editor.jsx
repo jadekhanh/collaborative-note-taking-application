@@ -1,7 +1,20 @@
+import {
+  closestCenter,
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { useEffect, useState } from "react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
+import useAutosave from "../hooks/useAutosave";
 import Block from "./Block";
 import VersionModal from "./modals/VersionModal";
 import CommentsPanel from "./panels/CommentsPanel";
@@ -38,6 +51,91 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
   // state to set block to add comment
   const [selectedCommentBlockId, setSelectedCommentBlockId] = useState(null);
+
+  /**
+   * Create sensors into one object
+   * Sensor = tells dnd-kit how the user starts dragging = dragging settings
+   * PointerSensor = mouse, touchpad, touchscreen
+   */
+  const sensors = useSensors(
+    // create 1 sensor
+    useSensor(PointerSensor, {
+      // user must move 6 pixels before dragging begins
+      // without this, click = immediate drag
+      activationConstraint: {
+        distance: 6,
+      },
+    }),
+  );
+
+  /**
+   * Save new blocks order to MongoDB + Emit to other collaborators through Socket.IO
+   * @param: already reorder blocks list
+   */
+  const saveBlockOrder = async (reorderedBlocks) => {
+    // return a list of [{blockId, order},...]
+    const blocksToUpdate = reorderedBlocks.map((block, index) => ({
+      blockId: block._id,
+      order: index,
+    }));
+
+    // call PUT /blocks/page/:pageId/reorder to save new blocks list to backend to update MongoDB
+    await api.put(`/blocks/page/${pageId}/reorder`, {
+      blocks: blocksToUpdate,
+    });
+
+    // tell everyone else inside the page that blocks are ordered
+    socket.emit("blocks-reordered", {
+      pageId,
+      // loop over blocks list
+      blocks: reorderedBlocks.map((block, index) => ({
+        ...block, // copy the block
+        order: index, // replace old with new order
+      })),
+    });
+  };
+
+  /**
+   * Handle drag ends
+   * This function is called when user releases mouse after done dragging
+   */
+  const handleDragEnd = async (event) => {
+    // active = the block being dragged
+    // over = the block being dragged over
+    // if block A is dragged onto block B position, then active = A, over = B
+    // result: A is where B was at, B and other blocks below gets moved down 1 position
+    const { active, over } = event;
+
+    // !over = if user drops outside
+    // active = over: if user drags block and drops it back onto same position
+    if (!over || active.id === over.id) return;
+
+    // find old position
+    const oldIndex = blocks.findIndex((block) => block._id === active.id);
+    // find new position
+    const newIndex = blocks.findIndex((block) => block._id === over.id);
+
+    // arrayMove() = helper function to write swap logic
+    // before ABCD, C gets moved up front, returns new list: CABD
+    // returns new blocks list
+    const reorderedBlocks = arrayMove(blocks, oldIndex, newIndex).map(
+      // update every block order field
+      (block, index) => ({
+        ...block,
+        order: index,
+      }),
+    );
+
+    // update React
+    setBlocks(reorderedBlocks);
+
+    try {
+      // save new block lists in backend
+      await saveBlockOrder(reorderedBlocks);
+    } catch (error) {
+      setError(error.response?.data?.message || "Failed to reorder blocks");
+    }
+  };
 
   /**
    * Set page and title and blocks whenever pageId is rendered
@@ -157,6 +255,13 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
       });
     });
 
+    // when frontend listens for block reordered
+    // blocks = list of blocks after reordering
+    socket.on("receive-blocks-reordered", ({ blocks }) => {
+      // set React state of current list of blocks
+      setBlocks(blocks);
+    });
+
     // run these to clean up
     return () => {
       // frontend sends message that they leave the page
@@ -166,31 +271,45 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
       socket.off("receive-block-created");
       socket.off("receive-block-updated");
       socket.off("receive-block-deleted");
+      socket.off("receive-blocks-reordered");
     };
   }, [socket, pageId, user]);
 
   /**
-   * Update page title
+   * useAutosave Hook calls this function after user stops typing title for 800ms
    */
-  const updatePageTitle = async (newTitle) => {
-    // set new title
-    setTitle(newTitle);
+  const savePageTitle = async (newTitle) => {
+    // call PUT /pages/:pageId to update page title
+    const res = await api.put(`/pages/${pageId}`, {
+      title: newTitle || "Untitled", // "Untitled" in case the user deleted everything
+    });
 
-    try {
-      // call PUT/api/pages/:pageId to update page title
-      const res = await api.put(`/pages/${pageId}`, {
-        title: newTitle || "Untitled",
-      });
-
-      // set page
-      setPage(res.data.page);
-      // tell Workspace that this page is updated
-      onPageUpdated(res.data.page);
-    } catch (error) {
-      // set error message
-      setError(error.response?.data?.message || "Failed to update page title");
-    }
+    // render page with updated page title
+    setPage(res.data.page);
+    // since Workspace owns the list of pages, when page title changes, Workspace needs to know
+    // tell Workspace that this page has a new title, so Workspace can updates the sidebar
+    onPageUpdated(res.data.page);
   };
+
+  /**
+   * Calls this function when user types in title in text box to change title state
+   * This function does not save anything, only changes React state immediately in every char. No backend req
+   */
+  const handleTitleChange = (newTitle) => {
+    // update React title state
+    setTitle(newTitle);
+  };
+
+  /**
+   * Autosave page title
+   * Everytime setTitle() changes title, useAutosave() notices, then it waits 800ms then it calls savePageTitle()
+   */
+  const titleSaveStatus = useAutosave({
+    value: title,
+    onSave: savePageTitle,
+    delay: 800,
+    enabled: Boolean(pageId && page),
+  });
 
   /**
    * Create a page block
@@ -379,29 +498,52 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
       <input
         className="editor-title"
         value={title}
-        // listen to event where page title is updated
-        onChange={(event) => updatePageTitle(event.target.value)}
-        // fainted hint text saying "Untitled"
+        onChange={(event) => handleTitleChange(event.target.value)}
         placeholder="Untitled"
       />
+      <p className="save-status">
+        {titleSaveStatus === "saving" && "Saving title..."}
+        {titleSaveStatus === "saved" && "Saved"}
+        {titleSaveStatus === "error" && "Failed to save title"}
+      </p>
 
       {/* list of text blocks */}
-      <div className="block-list">
-        {/* display one block at a time */}
-        {blocks.map((block) => (
-          <Block
-            key={block._id}
-            block={block}
-            // pass callbacks for blocks
-            onUpdate={updateBlock}
-            onDelete={deleteBlock}
-            onComment={(blockId) => {
-              setSelectedCommentBlockId(blockId);
-              setIsCommentsOpen(true);
-            }}
-          />
-        ))}
-      </div>
+      {/* DndContext = drag and drop environment */}
+      <DndContext
+        // sensors = dragging settings
+        sensors={sensors}
+        // detect blocks that the current block collides over by comaparing the center of the dragged block with the center of every other block
+        // this to detect which block is over block
+        collisionDetection={closestCenter}
+        // when user releases the mouse, call handleDragEnd() function above to save new blocks list to db and sends socket.io update
+        onDragEnd={handleDragEnd}
+      >
+        {/* SortableContext = everything inside here is sortable list */}
+        <SortableContext
+          // give dnd the current order of the blocks
+          items={blocks.map((block) => block._id)}
+          // tell dnd how to calculate movement, which is verticle movement
+          strategy={verticalListSortingStrategy}
+        >
+          <div className="block-list">
+            {blocks.map((block) => (
+              <Block
+                key={block._id}
+                block={block}
+                // call Editor when a block is updated
+                onUpdate={updateBlock}
+                // call Editor when a block is deleted
+                onDelete={deleteBlock}
+                // call Editor when a block is commented or has comment section opened
+                onComment={(blockId) => {
+                  setSelectedCommentBlockId(blockId);
+                  setIsCommentsOpen(true);
+                }}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
 
       {/* a button to create new text block */}
       <button className="add-block-button" onClick={createBlock}>

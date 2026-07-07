@@ -113,6 +113,12 @@ const socketHandler = (io) => {
       socket.to(pageId).emit("receive-block-deleted", { blockId });
     });
 
+    // listen for frontend event called "blocks-reordered" saying blocks are reordered
+    socket.on("blocks-reordered", ({ pageId, blocks }) => {
+      // socket tells everyone in the room to reorder blocks
+      socket.to(pageId).emit("receive-blocks-reordered", { blocks });
+    });
+
     // listen for frontend event called "cursor-moved" listening for cursor movement
     socket.on("cursor-moved", ({ pageId, user, cursor }) => {
       // socket tells everyone where the user's cursor moved

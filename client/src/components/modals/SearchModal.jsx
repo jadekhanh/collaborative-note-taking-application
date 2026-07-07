@@ -17,6 +17,7 @@ const SearchModal = ({ isOpen, onClose, onSelectPage }) => {
   const [blocks, setBlocks] = useState([]);
 
   // run the following code whenever query changes
+  // Note: the following code is a manual debounce
   useEffect(() => {
     // search function
     const search = async () => {

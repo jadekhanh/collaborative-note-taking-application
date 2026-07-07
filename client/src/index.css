@@ -569,3 +569,39 @@ button {
   gap: 8px;
   margin-top: 10px;
 }
+
+/* Display save status */
+.save-status,
+.block-save-status {
+  font-size: 12px;
+  color: #777;
+}
+
+/* Save status box */
+.save-status {
+  margin-top: -20px;
+  margin-bottom: 20px;
+}
+
+/* Save status margin */
+.block-save-status {
+  margin-left: auto;
+}
+
+/* Drag handle to reorder blocks */
+.drag-handle {
+  cursor: grab;
+  border: none;
+  background: transparent;
+  color: #777;
+}
+
+/* Drag handle when user is using */
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Block */
+.block {
+  background: transparent;
+}
