@@ -5,6 +5,7 @@ const {
   updateBlock,
   reorderBlocks,
   deleteBlock,
+  copyBlock,
 } = require("../controllers/blockController");
 const { protect } = require("../middleware/authMiddleware");
 
@@ -26,5 +27,8 @@ router.put("/page/:pageId/reorder", reorderBlocks);
 
 // DELETE /api/blocks/:blockId
 router.delete("/:blockId", deleteBlock);
+
+// POST /api/blocks/:blockId/copy
+router.post("/:blockId/copy", copyBlock);
 
 module.exports = router;

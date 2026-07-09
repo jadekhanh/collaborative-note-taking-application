@@ -17,6 +17,7 @@ import { api } from "../api/axios";
 import { Editor } from "../components/Editor";
 import { Sidebar } from "../components/Sidebar";
 import SearchModal from "../components/modals/SearchModal";
+import ArchivedPagesPanel from "../components/panels/ArchivedPagesPanel";
 
 /**
  * React component = a function that returns UI
@@ -33,10 +34,12 @@ const Workspace = () => {
   const [pages, setPages] = useState([]);
   // set which page is currently open; null at first
   const [selectedPageId, setSelectedPageId] = useState();
-  // set error error
+  // set React state for error
   const [error, setError] = useState();
-  // set Search modal state
+  // set React state for Search modal
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  // set React state for Archived Pages panel
+  const [isArchivedPagesOpen, setIsArchivedPagesOpen] = useState(false);
 
   // useEffect() = run the following code whenever the component loads or when specified dependencies change
   useEffect(() => {
@@ -84,6 +87,30 @@ const Workspace = () => {
       setSelectedPageId(res.data.page._id);
     } catch (error) {
       setError(error.response?.data?.message || "Failed to create page");
+    }
+  };
+
+  /**
+   * Handle restore page
+   */
+  const handlePageRestored = (restoredPage) => {
+    setPages((prevPages) => [...prevPages, restoredPage]);
+    setSelectedPageId(restoredPage._id);
+  };
+
+  /**
+   * Handle archive page
+   */
+  const handlePageArchived = (pageId) => {
+    // list of pages excluding page that is just archived
+    const remainingPages = pages.filter((page) => page._id !== pageId);
+
+    // display remaning pages
+    setPages(remainingPages);
+
+    // if the archived page is the page that is opened, open the first page in the top of the remaining pages list
+    if (selectedPageId === pageId) {
+      setSelectedPageId(remainingPages[0]?._id || null);
     }
   };
 
@@ -152,6 +179,21 @@ const Workspace = () => {
         onSelectPage={selectedPageId}
       />
 
+      {/* Archive button to archive current page */}
+      <button
+        className="floating-archive-button"
+        onClick={() => setIsArchivedPagesOpen(true)}
+      >
+        Archived
+      </button>
+
+      <ArchivedPagesPanel
+        workspaceId={workspaceId}
+        isOpen={isArchivedPagesOpen}
+        onClose={() => setIsArchivedPagesOpen(false)}
+        onPageRestored={handlePageRestored}
+      />
+
       {/* create sidebar */}
       <Sidebar
         // pass workspace
@@ -174,10 +216,9 @@ const Workspace = () => {
           <Editor
             pageId={selectedPageId}
             // callback functions: Editor can tell workspace if it updates/deletes a page and workspace can update its state
-            // Editor, if you update a page, call this function
-            // Editor, if you delete a page, call this function
-            onPageUpdated={handleUpdatePage}
-            onPageDeleted={handleDeletePage}
+            onPageUpdated={handleUpdatePage} // Editor, if you update a page, call this function
+            onPageDeleted={handleDeletePage} // Editor, if you delete a page, call this function
+            onPageArchived={handlePageArchived} // Editor, if you archive a page, call this function
           />
         ) : (
           // if no page is selected, shows empty editor that has a button to create a page

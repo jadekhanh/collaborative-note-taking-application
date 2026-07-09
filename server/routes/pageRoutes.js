@@ -6,6 +6,8 @@ const {
   getPageById,
   getPagesByWorkspace,
   archivePage,
+  getArchivedPages,
+  restorePage,
 } = require("../controllers/pageController");
 const {
   createPagePermission,
@@ -48,5 +50,11 @@ router.patch("/:pageId/archive", archivePage);
 
 // DELETE /api/pages/:pageId
 router.delete("/:pageId", deletePage);
+
+// GET /api/pages/workspaces/:workspaceId/archived
+router.get("/workspaces/:workspaceId/archived", getArchivedPages);
+
+// PATCH /api/pages/:pageId/restore
+router.patch("/:pageId/restore", restorePage);
 
 module.exports = router;

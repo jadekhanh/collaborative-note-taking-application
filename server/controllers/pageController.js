@@ -102,6 +102,72 @@ const getPagesByWorkspace = async (req, res) => {
 };
 
 /**
+ * Get archived pages by workspace
+ */
+const getArchivedPages = async (req, res) => {
+  try {
+    // extract from req params
+    // GET /pages/:workspaceId
+    const { workspaceId } = req.params;
+
+    // check if this user is member of the workspace
+    const isMember = checkWorkspaceMembership(workspaceId);
+    if (!isMember) {
+      return res
+        .status(403)
+        .json({ message: "Do not have access to workspace" });
+    }
+
+    // get archived pages by workspace, sorted by order and createdAt in ascending order
+    const pages = await Pages.find({
+      workspace: workspaceId,
+      isArchived: true,
+    }).sort({ order: 1, createdAt: 1 });
+
+    return res.status(200).json({ pages });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to get archived pages",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Restore a page from archived to un-archived
+ */
+const restorePage = async (req, res) => {
+  try {
+    // extract pageId
+    const { pageId } = req.params;
+
+    // get page
+    const page = await Page.findById(pageId);
+    if (!page) {
+      res.status(404).json({ message: "Page not found" });
+    }
+    // check if this user is member of the workspace
+    const isMember = checkWorkspaceMembership(page.workspace.workspaceId);
+    if (!isMember) {
+      return res
+        .status(403)
+        .json({ message: "Do not have access to workspace" });
+    }
+
+    // unarchive page
+    page.isArchived = false;
+    await page.save();
+
+    return res.status(200).json({ message: "Successfully restore page", page });
+  } catch {
+    return res.status(500).json({
+      message: "Failed to get restore page",
+      error: error.message,
+    });
+  }
+};
+
+/**
  * Get a page by its ID
  * Also output blocks inside this page
  */
@@ -282,4 +348,6 @@ module.exports = {
   getPageById,
   getPagesByWorkspace,
   archivePage,
+  getArchivedPages,
+  restorePage,
 };

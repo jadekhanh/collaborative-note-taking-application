@@ -671,3 +671,83 @@ button {
   padding: 6px 8px;
   border-radius: 6px;
 }
+
+.remote-cursors {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.remote-cursor {
+  font-size: 12px;
+  background: #eef2ff;
+  color: #333;
+  padding: 5px 8px;
+  border-radius: 999px;
+}
+
+.block {
+  position: relative;
+  background: transparent;
+}
+
+.inline-remote-cursor {
+  display: inline-block;
+  font-size: 12px;
+  background: #eef2ff;
+  color: #333;
+  padding: 4px 8px;
+  border-radius: 999px;
+  margin-bottom: 4px;
+}
+
+.floating-archive-button {
+  position: fixed;
+  top: 56px;
+  right: 24px;
+  z-index: 50;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  background: #555;
+  color: white;
+}
+
+.archived-pages-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 380px;
+  height: 100vh;
+  background: white;
+  border-left: 1px solid #ddd;
+  padding: 20px;
+  z-index: 90;
+  overflow-y: auto;
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.12);
+}
+
+.archived-page-card {
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.archived-page-card p {
+  margin: 4px 0 0;
+  color: #666;
+  font-size: 13px;
+}
+
+.archived-page-card button {
+  border: none;
+  background: #222;
+  color: white;
+  padding: 6px 10px;
+  border-radius: 6px;
+}

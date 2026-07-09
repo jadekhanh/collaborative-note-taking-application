@@ -1,16 +1,31 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useAutosave from "../hooks/useAutosave";
 
 /**
  * Block component
- * @param: block - block data from MongoDB
- * @param: onUpdate - function from Editor to update a block
- * @param: onDelete - function from Editor to delete a block
- * @param: onComment - function from Editor to open comments for this block
+ * @param block - block data from MongoDB
+ * @param remoteCursors - cursors of other users inside this block
+ * @param onUpdate - function from Editor to update a block
+ * @param: onCopy - function from Editor to copy a block
+ * @param onDelete - function from Editor to delete a block
+ * @param onComment - function from Editor to open comments for this block
+ * @param onTypingStarted - function from Editor to show typing indicator
+ * @param onTypingStopped - function from Editor to stop typing indicator
+ * @param onCursorMoved - function from Editor to broadcast cursor position
  */
-const Block = ({ block, onUpdate, onDelete, onComment }) => {
+const Block = ({
+  block,
+  remoteCursors = [],
+  onUpdate,
+  onCopy,
+  onDelete,
+  onComment,
+  onTypingStarted,
+  onTypingStopped,
+  onCursorMoved,
+}) => {
   /**
    * Calls useSortable() hook that returns a draggable large object
    */
@@ -38,6 +53,8 @@ const Block = ({ block, onUpdate, onDelete, onComment }) => {
   // React states for current block's content and type
   const [localContent, setLocalContent] = useState(block.content || {});
   const [localType, setLocalType] = useState(block.type);
+  // React state that stores the current typing timeout
+  const typingTimeoutRef = useRef(null);
 
   // get block text; if not exists, use ""
   const text = localContent?.text || "";
@@ -84,8 +101,108 @@ const Block = ({ block, onUpdate, onDelete, onComment }) => {
   };
 
   /**
-   * Depends on the block type, decides which input UI to display
+   * Handle typing indicator when a user starts typing
+   *
+   * Updates the local text asap
+   * Tell other users this user has started typing
+   * Restart the 1s timer
+   * If no typing happens for 1s, notify everyone that typing has stopped
    */
+  const handleTypingIndicator = (newText) => {
+    // update the block's local text asap
+    updateText(newText);
+
+    // notify Editor that typing has started
+    onTypingStarted();
+
+    // cancel previous timer because user continues typing
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    // start new timer
+    typingTimeoutRef.current = setTimeout(() => {
+      // onTyperStopped() is called only when the user stops typing for 1s
+      if (onTypingStopped) {
+        onTypingStopped;
+      }
+    }, 1000);
+  };
+
+  /**
+   * Run this effect when this block component is removed
+   * Prevents timers from continuing to run after the block has been removed
+   */
+  useEffect(() => {
+    return () => {
+      // if typing timer stills exists
+      if (typingTimeoutRef.current) {
+        // cancel it
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  /**
+   * Handle when the text cursor moves
+   *
+   * This happens when the user: clicks, types, hightlights text, uses arrow keys
+   *
+   * Send the latest cursor position to Editor which broadcasts it to other users
+   */
+  const handleCursorChange = (event) => {
+    onCursorMoved({
+      // current block
+      blockId: block._id,
+      // blinking cursor position
+      cursorPosition: event.target.selectionStart,
+      // end of highlight selection
+      selectionEnd: event.target.selectionEnd,
+      // current block type
+      type: localType,
+    });
+  };
+
+  /**
+   * Cursor events
+   */
+  const sharedCursorProps = {
+    onKeyUp: handleCursorChange, // user types a key
+    onClick: handleCursorChange, // user clicks somewhere
+    onSelect: handleCursorChange, // user highlights a text
+    onFocus: handleCursorChange, // input receives keyboard focus
+  };
+
+  /**
+   * Handle when user types /heading, /paragraph, convert the block to that type
+   */
+  const handleSlashCommand = (newText) => {
+    // create a map: text -> block type
+    const commands = {
+      "/heading": "heading",
+      "/subheading": "subheading",
+      "/bullet": "bullet",
+      "/checklist": "checklist",
+      "/code": "code",
+      "/quote": "quote",
+      "/paragraph": "paragraph",
+    };
+
+    // if newText.trim() = block type, set block type and content
+    if (commands[newText.trim()]) {
+      setLocalType(commands[newText.trim()]);
+      // keep other block contents, reset text section only
+      setLocalContent({
+        ...localContent,
+        text: "",
+      });
+      return;
+    }
+
+    // else, just run typing indicator
+    handleTypingIndicator(newText);
+  };
+
   const renderBlockInput = () => {
     switch (localType) {
       case "heading":
@@ -93,8 +210,9 @@ const Block = ({ block, onUpdate, onDelete, onComment }) => {
           <input
             className="block-input block-heading"
             value={text}
-            onChange={(event) => updateText(event.target.value)}
+            onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
             placeholder="Heading"
+            {...sharedCursorProps} // attach all cursor-tracking events
           />
         );
 
@@ -103,21 +221,22 @@ const Block = ({ block, onUpdate, onDelete, onComment }) => {
           <input
             className="block-input block-subheading"
             value={text}
-            onChange={(event) => updateText(event.target.value)}
+            onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
             placeholder="Subheading"
+            {...sharedCursorProps} // attach all cursor-tracking events
           />
         );
 
       case "bullet":
         return (
           <div className="bullet-row">
-            {/* display a bullet symbol, followed by text */}
             <span>•</span>
             <input
               className="block-input"
               value={text}
-              onChange={(event) => updateText(event.target.value)}
+              onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
               placeholder="Bullet"
+              {...sharedCursorProps} // attach all cursor-tracking events
             />
           </div>
         );
@@ -125,26 +244,23 @@ const Block = ({ block, onUpdate, onDelete, onComment }) => {
       case "checklist":
         return (
           <div className="checklist-row">
-            {/*  display checkbox */}
-            {/* display checkbox */}
             <input
               type="checkbox"
-              //   if checked does not exist, default to false
               checked={localContent?.checked || false}
-              //   when checkbox changes, update checked inside localContent
               onChange={(event) =>
                 setLocalContent({
                   ...localContent,
-                  checked: event.target.checked, // event.target.checked is a Boolean
+                  checked: event.target.checked,
                 })
               }
             />
-            {/* followed by display input text */}
+
             <input
               className="block-input"
               value={text}
-              onChange={(event) => updateText(event.target.value)}
+              onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
               placeholder="Checklist item"
+              {...sharedCursorProps} // attach all cursor-tracking events
             />
           </div>
         );
@@ -154,8 +270,9 @@ const Block = ({ block, onUpdate, onDelete, onComment }) => {
           <textarea
             className="block-input block-code"
             value={text}
-            onChange={(event) => updateText(event.target.value)}
+            onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
             placeholder="Code"
+            {...sharedCursorProps}
           />
         );
 
@@ -164,19 +281,20 @@ const Block = ({ block, onUpdate, onDelete, onComment }) => {
           <textarea
             className="block-input block-quote"
             value={text}
-            onChange={(event) => updateText(event.target.value)}
+            onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
             placeholder="Quote"
+            {...sharedCursorProps} // attach all cursor-tracking events
           />
         );
 
-      // if type is unknown, show normal texting area
       default:
         return (
           <textarea
             className="block-input"
             value={text}
-            onChange={(event) => updateText(event.target.value)}
+            onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
             placeholder="Write something..."
+            {...sharedCursorProps}
           />
         );
     }
@@ -185,50 +303,53 @@ const Block = ({ block, onUpdate, onDelete, onComment }) => {
   // return UI
   return (
     <div ref={setNodeRef} style={style} className="block">
-      <div className="block">
-        <div className="block-controls">
-          {/* Display drag ⋮⋮ handle */}
-          <button
-            className="drag-handle"
-            type="button"
-            {...attributes}
-            {...listeners}
-          >
-            ⋮⋮
-          </button>
-
-          {/*  dropdown for changing block type */}
-          <select
-            value={localType}
-            onChange={(event) => updateType(event.target.value)}
-          >
-            {/* options in dropdown menu */}
-            <option value="paragraph">Paragraph</option>
-            <option value="heading">Heading</option>
-            <option value="subheading">Subheading</option>
-            <option value="bullet">Bullet</option>
-            <option value="checklist">Checklist</option>
-            <option value="code">Code</option>
-            <option value="quote">Quote</option>
-          </select>
-
-          {/* button to add comment to block */}
-          <button onClick={() => onComment(block._id)}>Comment</button>
-
-          {/* button to delete block */}
-          <button onClick={() => onDelete(block._id)}>Delete</button>
-
-          {/* Display block save status */}
-          <span className="block-save-status">
-            {blockSaveStatus === "saving" && "Saving..."}
-            {blockSaveStatus === "saved" && "Saved"}
-            {blockSaveStatus === "error" && "Save failed"}
-          </span>
+      {/* display other users' cursor positions inside this block */}
+      {remoteCursors.length > 0 && (
+        <div className="inline-remote-cursors">
+          {remoteCursors.map((remoteCursor) => (
+            <span key={remoteCursor.user._id} className="inline-remote-cursor">
+              {remoteCursor.user.username} is editing at character{" "}
+              {remoteCursor.cursor.cursorPosition}
+            </span>
+          ))}
         </div>
+      )}
 
-        {/* render the correct input depending on the block type */}
-        {renderBlockInput()}
+      <div className="block-controls">
+        <button
+          className="drag-handle"
+          type="button"
+          {...attributes}
+          {...listeners}
+        >
+          ⋮⋮
+        </button>
+
+        <select
+          value={localType}
+          onChange={(event) => updateType(event.target.value)}
+        >
+          <option value="paragraph">Paragraph</option>
+          <option value="heading">Heading</option>
+          <option value="subheading">Subheading</option>
+          <option value="bullet">Bullet</option>
+          <option value="checklist">Checklist</option>
+          <option value="code">Code</option>
+          <option value="quote">Quote</option>
+        </select>
+
+        <button onClick={() => onComment(block._id)}>Comment</button>
+        <button onClick={() => onCopy(block._id)}>Duplicate</button>
+        <button onClick={() => onDelete(block._id)}>Delete</button>
+
+        <span className="block-save-status">
+          {blockSaveStatus === "saving" && "Saving..."}
+          {blockSaveStatus === "saved" && "Saved"}
+          {blockSaveStatus === "error" && "Save failed"}
+        </span>
       </div>
+
+      {renderBlockInput()}
     </div>
   );
 };

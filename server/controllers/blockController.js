@@ -64,6 +64,50 @@ const createBlock = async (req, res) => {
 };
 
 /**
+ * Copy a block
+ */
+const copyBlock = async (req, res) => {
+  try {
+    // extract id from req param
+    const { id } = req.params;
+    // get original block
+    const originalBlock = await Block.findById(id);
+    if (!originalBlock) {
+      res.status(401).json({ message: "Block not found" });
+    }
+
+    // check if this user has permission to block's page
+    const isPermitted = await checkPageMembership(
+      originalBlock.page,
+      req.user._id,
+    );
+    if (!isPermitted) {
+      return res
+        .status(404)
+        .json({ message: "Do not have permission to page" });
+    }
+
+    // create duplicated block
+    const duplicatedBlock = await Block.create({
+      page: originalBlock.page,
+      type: originalBlock.type,
+      content: originalBlock.content,
+      order: originalBlock.order + 1, // right below the original block
+      createdBy: req.use._id,
+      updatedAt: req.user._id,
+    });
+
+    res
+      .status(201)
+      .json({ message: "Successfully copy a block", block: duplicatedBlock });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ message: "Failed to copy a block", error: error.message });
+  }
+};
+
+/**
  * Get blocks by page
  */
 const getBlocksByPage = async (req, res) => {
@@ -200,6 +244,7 @@ const deleteBlock = async (req, res) => {
 // export functions
 module.exports = {
   createBlock,
+  copyBlock,
   getBlocksByPage,
   updateBlock,
   reorderBlocks,

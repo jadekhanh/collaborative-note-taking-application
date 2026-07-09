@@ -25,35 +25,40 @@ import CommentsPanel from "./panels/CommentsPanel";
  * @param {string} pageId - The id of the page to edit
  * @param {Function} onPageUpdated - The function to call when the page is updated
  * @param {Function} onPageDeleted - The function to call when the page is deleted
+ * @param {Function} onPageArchive - The function to call when the page is archived
  * @returns {JSX.Element} - The Editor component
  *
  * Notes:
  * Editor has onPageUpdated since editing happens inside the Editor, then Workspace needs Editor calls the callback to update pages state
  * Editor can delete pages so Workspace needs Editor to call the callback to update the pages list
  */
-const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
+const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
   // get user and socket
   const { user } = useAuth();
   const socket = useSocket();
 
-  // state to store the page data
+  // React state to display the page
   const [page, setPage] = useState(null);
-  // state to store the blocks data
+  // React state to display the blocks
   const [blocks, setBlocks] = useState([]);
-  // state to store the page title
+  // React state to display the page title
   const [title, setTitle] = useState("");
-  // state to store active users in current page
+  // React state to store active users in current page
   const [activeUsers, setActiveUsers] = useState([]);
-  // state to store the error message
+  // React state to display the error message
   const [error, setError] = useState("");
-  // state to store boolean if version modal is opened
+  // React state to store boolean if version modal is opened
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
-  // state to open comment panel
+  // React state to open comment panel
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
-  // state to set block to add comment
+  // React state to set block to add comment
   const [selectedCommentBlockId, setSelectedCommentBlockId] = useState(null);
-  // state to open attachment panel
+  // React state to open attachment panel
   const [isAttachmentsOpen, setIsAttachmentsOpen] = useState(false);
+  // React state to display typing users
+  const [typingUsers, setTypingUsers] = useState([]);
+  // React state to display cursors
+  const [remoteCursors, setRemoteCursors] = useState([]);
 
   /**
    * Create sensors into one object
@@ -185,13 +190,13 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
     // when frontend emits a message to backend that a user joins pageId
     socket.emit("join-page", { pageId, user });
 
-    // when frontend listens for list of update active users
+    // listen for Socket.IO event sent by backend when a user joins the page
     socket.on("page-users-updated", ({ users }) => {
       // run this function to update React state to display active users
       setActiveUsers(users);
     });
 
-    // when frontend listens for a new block creation
+    // listen for Socket.IO event sent by backend when a new block is created
     // block = new block
     socket.on("receive-block-created", ({ block }) => {
       // set current list of blocks
@@ -221,7 +226,7 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
       });
     });
 
-    // when frontend listens for newly updated block
+    // listen for Socket.IO event sent by backend when a block is updated
     // block = newly updated block
     socket.on("receive-block-updated", ({ block }) => {
       // set current list of blocks
@@ -241,7 +246,7 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
       });
     });
 
-    // when frontend listens for deleted block
+    // listen for Socket.IO event sent by backend when a block is deleted
     // blockId = deleted block
     socket.on("receive-block-deleted", ({ blockId }) => {
       // set current list of blocks
@@ -258,11 +263,84 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
       });
     });
 
-    // when frontend listens for block reordered
+    // listen for Socket.IO event sent by backend when blocks are reordered
     // blocks = list of blocks after reordering
     socket.on("receive-blocks-reordered", ({ blocks }) => {
       // set React state of current list of blocks
       setBlocks(blocks);
+    });
+
+    // listen for Socket.IO event sent by backend when a user starts typing
+    socket.on("receive-typing-started", (data) => {
+      // extract user from data
+      const user = data.user;
+
+      // update typingUsers React state
+      setTypingUsers((prevUsers) => {
+        // check if this user is not already typing
+        let alreadyTyping = false;
+
+        // loop through every current user
+        for (const current of prevUsers) {
+          // if this user has the same ID as the user being checked, it means they're already in the typing list
+          if (current._id === user._id) {
+            alreadyTyping = true;
+            break;
+          }
+        }
+
+        // if the user is already in the typing list, just return the existing list
+        if (alreadyTyping) {
+          return prevUsers;
+        }
+        // if not, add this user into the typing list
+        else {
+          return [...prevUsers, user];
+        }
+      });
+    });
+
+    // listen for Socket.IO event sent by backend when a user stops typing
+    socket.on("receive-typing-stopped", (data) => {
+      // extract user from data
+      const user = data.user;
+
+      // update typingUsers React state
+      setTypingUsers((prevUsers) => {
+        // updated list of typing users
+        const newTypingUsers = [];
+        for (const current of prevUsers) {
+          // push all users that is not the user that stops typing
+          if (user._id !== current._id) {
+            newTypingUsers.push(current);
+          }
+        }
+
+        return newTypingUsers;
+      });
+    });
+
+    // listen for Socket.IO event sent by backend when another user moves thier cursor inside the page
+    socket.on("receive-cursor-moved", (data) => {
+      // extract user and cursor from data
+      const { user, cursor } = data;
+
+      // update the list of all remote cursors positions inside the page
+      setRemoteCursors((prevCursors) => {
+        // create a new list of every user's latest cursor
+        const newCursors = [];
+        for (const current of prevCursors) {
+          // keep every cursor besides the one belonging to the user who just moved
+          if (current.user._id !== user._id) {
+            newCursors.push(current);
+          }
+        }
+
+        // add the user's newest cursor position to the list
+        newCursors.push({ user: user, cursor: cursor });
+
+        return newCursors;
+      });
     });
 
     // run these to clean up
@@ -275,6 +353,9 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
       socket.off("receive-block-updated");
       socket.off("receive-block-deleted");
       socket.off("receive-blocks-reordered");
+      socket.off("receive-typing-started");
+      socket.off("receive-typing-stopped");
+      socket.off("receive-cursor-moved");
     };
   }, [socket, pageId, user]);
 
@@ -363,6 +444,25 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
   };
 
   /**
+   * Copy a block
+   */
+  const copyBlock = async (blockId) => {
+    try {
+      // call POST /api/blocks/:blockId/copy
+      const res = await api.post(`/blocks/${blockId}/copy`);
+
+      // display new list of blocks
+      setBlocks((prevBlocks) => [...prevBlocks, res.data.block]);
+
+      // broadcast new block to other collaborators
+      socket.emit("block-created", { pageId, block: res.data.block });
+    } catch (error) {
+      // set error message
+      setError(error.response?.data?.message || "Failed to copy block");
+    }
+  };
+
+  /**
    * Delete a block
    */
   const deleteBlock = async (blockId) => {
@@ -391,8 +491,8 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
     try {
       // call PATCH /api/pages/:pageId/archieve to archieve a page
       await api.patch(`/pages/${pageId}/archive`);
-      // tell Workspace we delete this page on Editor
-      onPageDeleted(pageId);
+      // tell Workspace we archive this page on Editor
+      onPageArchive(pageId);
     } catch (error) {
       // set error message
       setError(error.response?.data?.message || "Failed to archive page");
@@ -425,8 +525,6 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
 
   /**
    * Restore a page version
-   * @param {*} restoredPage
-   * @param {*} restoredBlocks
    */
   const restoreVersion = (restoredPage, restoredBlocks) => {
     // set page as restored page
@@ -448,36 +546,47 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
 
   // return UI
   return (
-    // create Editor
+    // main editor container
     <div className="editor">
-      {/* display error message if any */}
+      {/* display error message if something fails */}
       {error && <p className="error">{error}</p>}
 
-      {/* presence bar to display curently active users in the page*/}
+      {/* display users currently viewing/editing this page */}
       <div className="presence-bar">
-        {activeUsers.map((activeUser) => {
-          // displays active user: 🍥 username
-          <span key={activeUser.socketId}> 🍥 {activeUser.username}</span>;
-        })}
+        {activeUsers.map((activeUser) => (
+          <span key={activeUser.socketId}>🍥 {activeUser.username}</span>
+        ))}
       </div>
 
-      {/* page action bar */}
+      {/* display users who are currently typing */}
+      {typingUsers.length > 0 && (
+        <p className="typing-indicator">
+          {typingUsers.map((item) => item.username).join(", ")} editing...
+        </p>
+      )}
+
+      {/* page action buttons */}
       <div className="editor-actions">
-        {/* a button to open Version modal */}
+        {/* version history modal for saving/restoring page snapshots */}
         <VersionModal
           isOpen={isVersionModalOpen}
           onClose={() => setIsVersionModalOpen(false)}
           pageId={pageId}
           onRestore={restoreVersion}
         />
+
+        {/* open version history modal */}
         <button onClick={() => setIsVersionModalOpen(true)}>
           Version History
         </button>
-        {/* a button to archive page */}
+
+        {/* soft delete page by archiving it */}
         <button onClick={archivePage}>Archive Page</button>
-        {/* a button to delete page */}
+
+        {/* permanently delete page */}
         <button onClick={deletePage}>Delete Page</button>
-        {/* a button to add comments to page */}
+
+        {/* open page-level comments, not attached to a specific block */}
         <button
           onClick={() => {
             setSelectedCommentBlockId(null);
@@ -486,6 +595,8 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
         >
           Page Comments
         </button>
+
+        {/* comments panel supports both page-level and block-level discussions */}
         <CommentsPanel
           pageId={pageId}
           blockId={selectedCommentBlockId}
@@ -497,58 +608,70 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
         />
       </div>
 
-      {/* button to open attachment panel */}
+      {/* open attachment panel for uploaded files/images */}
       <button onClick={() => setIsAttachmentsOpen(true)}>Attachments</button>
+
+      {/* attachment panel displays uploaded files and supports upload/download */}
       <AttachmentsPanel
         pageId={pageId}
         isOpen={isAttachmentsOpen}
         onClose={() => setIsAttachmentsOpen(false)}
       />
 
-      {/* page title */}
+      {/* editable page title; autosaves after user stops typing */}
       <input
         className="editor-title"
         value={title}
         onChange={(event) => handleTitleChange(event.target.value)}
         placeholder="Untitled"
       />
+
+      {/* title autosave status */}
       <p className="save-status">
         {titleSaveStatus === "saving" && "Saving title..."}
         {titleSaveStatus === "saved" && "Saved"}
         {titleSaveStatus === "error" && "Failed to save title"}
       </p>
 
-      {/* list of text blocks */}
-      {/* DndContext = drag and drop environment */}
+      {/* drag-and-drop area for reordering blocks */}
       <DndContext
-        // sensors = dragging settings
         sensors={sensors}
-        // detect blocks that the current block collides over by comaparing the center of the dragged block with the center of every other block
-        // this to detect which block is over block
         collisionDetection={closestCenter}
-        // when user releases the mouse, call handleDragEnd() function above to save new blocks list to db and sends socket.io update
         onDragEnd={handleDragEnd}
       >
-        {/* SortableContext = everything inside here is sortable list */}
+        {/* sortable list context tells dnd-kit which blocks can be reordered */}
         <SortableContext
-          // give dnd the current order of the blocks
           items={blocks.map((block) => block._id)}
-          // tell dnd how to calculate movement, which is verticle movement
           strategy={verticalListSortingStrategy}
         >
+          {/* render all blocks in current order */}
           <div className="block-list">
             {blocks.map((block) => (
               <Block
                 key={block._id}
                 block={block}
-                // call Editor when a block is updated
+                remoteCursors={remoteCursors.filter(
+                  (item) => item.cursor.blockId === block._id,
+                )}
                 onUpdate={updateBlock}
-                // call Editor when a block is deleted
+                onCopy={copyBlock}
                 onDelete={deleteBlock}
-                // call Editor when a block is commented or has comment section opened
                 onComment={(blockId) => {
                   setSelectedCommentBlockId(blockId);
                   setIsCommentsOpen(true);
+                }}
+                onTypingStarted={() => {
+                  socket.emit("typing-started", { pageId, user });
+                }}
+                onTypingStopped={() => {
+                  socket.emit("typing-stopped", { pageId, user });
+                }}
+                onCursorMoved={(cursor) => {
+                  socket.emit("cursor-moved", {
+                    pageId,
+                    user,
+                    cursor,
+                  });
                 }}
               />
             ))}
@@ -556,7 +679,7 @@ const Editor = ({ pageId, onPageUpdated, onPageDeleted }) => {
         </SortableContext>
       </DndContext>
 
-      {/* a button to create new text block */}
+      {/* create a new paragraph block at the bottom of the page */}
       <button className="add-block-button" onClick={createBlock}>
         + Add text block
       </button>
