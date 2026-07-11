@@ -4,20 +4,106 @@ const PagePermission = require("../models/Permission");
 const Workspace = require("../models/Workspace");
 
 /**
- * Check if current user has access to workspace where page belongs
+ * A user can access a page in 3 ways:
+ * - own the page
+ * - someone shares the page with them
+ * - belong to the workspace
+ *
+ * Example:
+ * workspace role = viewer
+ * page-specific permission = editor
+ * -> the person has editor permission
  */
-const checkWorkspaceMembership = async (workspaceId, userId) => {
+const ROLE_PRIORITY = {
+  VIEWER: 1,
+  EDITOR: 2,
+  OWNER: 3,
+};
+
+/**
+ * Get the user's role inside the workspace
+ */
+const getWorkspaceRole = async (workspaceId, userId) => {
   // get workspace
   const workspace = await Workspace.findById(workspaceId);
   if (!workspace) {
-    return false;
+    return null;
   }
 
-  // check if current user has access to workspace
-  for (const member of workspace.members) {
-    if (member.user.toString() === userId.toString()) {
-      return true;
+  // find the member inside workspace that has matching user id
+  const member = workspace.members.find(
+    (workspaceMember) => workspaceMember.user.toString() === userId.toString(),
+  );
+
+  // return the role of this user
+  // null if this user does not belong to the workspace
+  return member?.role || null;
+};
+
+/**
+ * Get the user's role inside the page
+ */
+const getPageRole = async (page, userId) => {
+  // if this person is the page owner
+  if (page.owner.toString() === userId.toString()) {
+    return "OWNER";
+  }
+
+  // get user's page permission
+  const pagePermission = await PagePermission.findOne({
+    page: page._id,
+    user: userId,
+  });
+
+  // get user's workspace role
+  const workspaceRole = await getWorkspaceRole(page.workspace, userId);
+
+  // get user's final page role
+  let finalPageRole = null;
+
+  // if this user has page permission, than it is their final page role
+  if (pagePermission?.role) {
+    finalPageRole = pagePermission.role;
+  }
+
+  // if this user has workspace role
+  if (workspaceRole) {
+    // if they don't have page role yet,
+    if (!finalPageRole) {
+      // if this user is the workspace owner, assign them page editor
+      if (workspaceRole == "OWNER") {
+        finalPageRole = "EDITOR";
+      }
+      // if this user is workspace viewer or editor, assign them as is
+      else {
+        finalPageRole = workspaceRole;
+      }
     }
+    // if they have a page role
+    else {
+      // if their workspace role is higher than page role
+      if (ROLE_PRIORITY[workspaceRole] > ROLE_PRIORITY[finalPageRole]) {
+        // if this user is the workspace owner, assign them page editor
+        if (workspaceRole == "OWNER") {
+          finalPageRole = "EDITOR";
+        }
+        // if this user is workspace viewer or editor, assign them as is
+        else {
+          finalPageRole = workspaceRole;
+        }
+      }
+    }
+  }
+
+  return finalPageRole;
+};
+
+/**
+ * Check if user can edit page
+ */
+const canEditPage = (pageAccessRole) => {
+  if (pageAccessRole === "OWNER" || pageAccessRole === "EDITOR") {
+    return true;
   }
   return false;
 };
@@ -31,27 +117,26 @@ const createPage = async (req, res) => {
     // note: these are the only fields that frontend user is allowed to control when they first create a page
     const { title, workspaceId, parentPage, icon } = req.body;
 
-    // check if this user is a member of this workshop
-    // frontend does not send userId, this is from protect() middleware
-    const isMember = await checkWorkspaceMembership(workspaceId, req.user._id);
-    if (!isMember) {
-      return res
-        .status(403)
-        .json({ message: "Do not have access to workspace" });
+    // check if this user is a member of this workspace and is either OWNER or EDITOR
+    const workspaceRole = await getWorkspaceRole(workspaceId, req.user._id);
+    if (workspaceRole !== "OWNER" && workspaceRole !== "EDITOR") {
+      return res.status(403).json({
+        message: "Editor access is required to create a page",
+      });
     }
 
     // create a page
     const page = await Page.create({
-      title: title,
+      title: title || "Untitled",
       workspace: workspaceId,
-      parentPage: parentPage,
+      parentPage: parentPage || null,
       owner: req.user._id,
-      icon: icon,
+      icon: icon || "",
     });
 
     // create page permission
     await PagePermission.create({
-      page: page,
+      page: page._id,
       user: req.user._id,
       role: "OWNER",
       grantedBy: req.user._id,
@@ -70,7 +155,7 @@ const createPage = async (req, res) => {
 };
 
 /**
- * Get all pages by workspace
+ * Get all non-archived pages by workspace
  */
 const getPagesByWorkspace = async (req, res) => {
   try {
@@ -79,15 +164,15 @@ const getPagesByWorkspace = async (req, res) => {
     const { workspaceId } = req.params;
 
     // check if this user is member of the workspace
-    const isMember = checkWorkspaceMembership(workspaceId);
-    if (!isMember) {
-      return res
-        .status(403)
-        .json({ message: "Do not have access to workspace" });
+    const workspaceRole = await getWorkspaceRole(workspaceId, req.user._id);
+    if (!workspaceRole) {
+      return res.status(403).json({
+        message: "Do not have access to this workspace",
+      });
     }
 
     // get non-archived pages by workspace, sorted by order and createdAt in ascending order
-    const pages = await Pages.find({
+    const pages = await Page.find({
       workspace: workspaceId,
       isArchived: false,
     }).sort({ order: 1, createdAt: 1 });
@@ -95,7 +180,7 @@ const getPagesByWorkspace = async (req, res) => {
     return res.status(200).json({ pages });
   } catch (error) {
     return res.status(500).json({
-      message: "Failed to get pages of workspace",
+      message: "Failed to get workspace pages",
       error: error.message,
     });
   }
@@ -111,15 +196,15 @@ const getArchivedPages = async (req, res) => {
     const { workspaceId } = req.params;
 
     // check if this user is member of the workspace
-    const isMember = checkWorkspaceMembership(workspaceId);
-    if (!isMember) {
-      return res
-        .status(403)
-        .json({ message: "Do not have access to workspace" });
+    const workspaceRole = await getWorkspaceRole(workspaceId, req.user._id);
+    if (!workspaceRole) {
+      return res.status(403).json({
+        message: "Do not have access to this workspace",
+      });
     }
 
     // get archived pages by workspace, sorted by order and createdAt in ascending order
-    const pages = await Pages.find({
+    const pages = await Page.find({
       workspace: workspaceId,
       isArchived: true,
     }).sort({ order: 1, createdAt: 1 });
@@ -144,24 +229,27 @@ const restorePage = async (req, res) => {
     // get page
     const page = await Page.findById(pageId);
     if (!page) {
-      res.status(404).json({ message: "Page not found" });
+      return res.status(404).json({ message: "Page not found" });
     }
-    // check if this user is member of the workspace
-    const isMember = checkWorkspaceMembership(page.workspace.workspaceId);
-    if (!isMember) {
-      return res
-        .status(403)
-        .json({ message: "Do not have access to workspace" });
+
+    // check if this user can edit page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!canEditPage(accessRole)) {
+      return res.status(403).json({
+        message: "Editor access is required to restore this page",
+      });
     }
 
     // unarchive page
     page.isArchived = false;
     await page.save();
 
-    return res.status(200).json({ message: "Successfully restore page", page });
-  } catch {
+    return res
+      .status(200)
+      .json({ message: "Successfully restored page", page });
+  } catch (error) {
     return res.status(500).json({
-      message: "Failed to get restore page",
+      message: "Failed to restore page",
       error: error.message,
     });
   }
@@ -179,31 +267,28 @@ const getPageById = async (req, res) => {
 
     // get page
     // repace workspace id with its name, replace owner id with its username and email
-    const page = await Pages.findById(pageId)
-      .populate("workspace", "name")
-      .populate("owner", "username email");
+    const page = await Page.findById(pageId);
     if (!page || page.isArchived) {
       // 404 = cannot find
       return res.status(404).json({ message: "Page not found" });
     }
 
-    // check if this user has permission to access this page
-    const isPermitted = await PagePermission.findOne({
-      page: pageId,
-      user: req.user._id,
-    });
-    // check if this user is member of the workspace
-    const isMember = checkWorkspaceMembership(workspaceId);
-    if (!isMember && !isPermitted) {
-      return res
-        .status(403)
-        .json({ message: "Do not have access to workspace" });
+    // check if this user can access the page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!accessRole) {
+      return res.status(403).json({
+        message: "Do not have access to this page",
+      });
     }
 
-    // get page blocks in ascending order
-    const blocks = await Blocks.find({ page: pageId }).sort({ order: 1 });
+    // Populate fields after authorization succeeds
+    await page.populate("workspace", "name");
+    await page.populate("owner", "username email");
 
-    return res.status(200).json({ page, blocks });
+    // get page blocks in ascending order
+    const blocks = await Block.find({ page: pageId }).sort({ order: 1 });
+
+    return res.status(200).json({ page, blocks, accessRole });
   } catch (error) {
     return res
       .status(500)
@@ -213,6 +298,7 @@ const getPageById = async (req, res) => {
 
 /**
  * Archive page
+ * Only OWNER can archive page
  */
 const archivePage = async (req, res) => {
   try {
@@ -220,17 +306,17 @@ const archivePage = async (req, res) => {
     const { pageId } = req.params;
 
     // get page
-    const page = await Pages.findById(pageId);
+    const page = await Page.findById(pageId);
     if (!page || page.isArchived) {
       // 404 = cannot find
       return res.status(404).json({ message: "Page not found" });
     }
 
     // check if this user is the owner of this page
-    if (req.user._id.toString() !== page.owner.toString()) {
-      return res
-        .status(403)
-        .json({ message: "Only page owner can archive this page" });
+    if (page.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        message: "Only the page owner can archive this page",
+      });
     }
 
     // archive page
@@ -257,24 +343,50 @@ const updatePage = async (req, res) => {
   try {
     // extract variables from req.body
     const { title, icon, parentPage, coverImageUrl, order } = req.body;
+    // extract pageId from req.params
+    const { pageId } = req.params;
 
     // get page
-    const page = await Pages.findById(req.params.pageId);
+    const page = await Page.findById(pageId);
     if (!page || page.isArchived) {
       return res.status(404).json({ message: "Page not found" });
     }
 
-    // check if this user has permission to access this page
-    const isPermitted = await PagePermission.findOne({
-      page: pageId,
-      user: req.user._id,
-    });
-    // check if this user is member of the workspace
-    const isMember = checkWorkspaceMembership(workspaceId);
-    if (!isMember && !isPermitted) {
-      return res
-        .status(403)
-        .json({ message: "Do not have access to workspace" });
+    // check if this user has editor access the page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!canEditPage(accessRole)) {
+      return res.status(403).json({
+        message: "Editor access is required to update this page",
+      });
+    }
+
+    /*
+     * Prevent a page from becoming its own parent
+     */
+    if (
+      parentPage !== undefined &&
+      parentPage !== null &&
+      parentPage.toString() === page._id.toString()
+    ) {
+      return res.status(400).json({
+        message: "A page cannot be its own parent",
+      });
+    }
+
+    /*
+     * If moving under another parent, verify the new parent belongs to the same workspace
+     */
+    if (parentPage) {
+      const newParent = await Page.findOne({
+        _id: parentPage,
+        workspace: page.workspace,
+        isArchived: false,
+      });
+      if (!newParent) {
+        return res.status(400).json({
+          message: "Parent page does not belong to the same workspace",
+        });
+      }
     }
 
     // update page fields
@@ -296,7 +408,9 @@ const updatePage = async (req, res) => {
 
     await page.save();
 
-    return res.status(200).json({ message: "Successfully update page", page });
+    return res
+      .status(200)
+      .json({ message: "Successfully updated page", page, accessRole });
   } catch (error) {
     return res
       .status(500)
@@ -306,6 +420,7 @@ const updatePage = async (req, res) => {
 
 /**
  * Delete page
+ * Only OWNER can delete page
  */
 const deletePage = async (req, res) => {
   try {
@@ -319,10 +434,10 @@ const deletePage = async (req, res) => {
     }
 
     // check if user is page owner
-    if (req.user._id.toString() !== page.owner.toString()) {
-      return res
-        .status(403)
-        .json({ message: "Only page owner can delete this page" });
+    if (page.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        message: "Only the page owner can delete this page",
+      });
     }
 
     // delete blocks belonging to this page

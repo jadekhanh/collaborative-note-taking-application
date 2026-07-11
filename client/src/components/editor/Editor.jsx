@@ -11,14 +11,15 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useEffect, useState } from "react";
-import api from "../api/axios";
-import { useAuth } from "../context/AuthContext";
-import { useSocket } from "../context/SocketContext";
-import useAutosave from "../hooks/useAutosave";
+import api from "../../api/axios";
+import { useAuth } from "../../context/AuthContext";
+import { useSocket } from "../../context/SocketContext";
+import useAutosave from "../../hooks/useAutosave";
+import ShareModal from "../modals/ShareModal";
+import VersionModal from "../modals/VersionModal";
+import AttachmentsPanel from "../panels/AttachmentsPanel";
+import CommentsPanel from "../panels/CommentsPanel";
 import Block from "./Block";
-import VersionModal from "./modals/VersionModal";
-import AttachmentsPanel from "./panels/AttachmentsPanel";
-import CommentsPanel from "./panels/CommentsPanel";
 
 /**
  * Create the Editor component to edit the page content
@@ -59,6 +60,21 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
   const [typingUsers, setTypingUsers] = useState([]);
   // React state to display cursors
   const [remoteCursors, setRemoteCursors] = useState([]);
+  // React state to open Share Modal
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  // React state for user's page access role
+  const [accessRole, setAccessRole] = useState("VIEWER");
+
+  /**
+   * Boolean check if a user can edit this page
+   * Used for restrictive buttons
+   */
+  const canEdit = accessRole === "OWNER" || accessRole === "EDITOR";
+  /**
+   * Boolean check if this user is owner of the page
+   * Used for restrictive buttons
+   */
+  const isOwner = accessRole === "OWNER";
 
   /**
    * Create sensors into one object
@@ -108,6 +124,11 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
    * This function is called when user releases mouse after done dragging
    */
   const handleDragEnd = async (event) => {
+    // if this user is VIEWER, do nothing
+    if (!canEdit) {
+      return;
+    }
+
     // active = the block being dragged
     // over = the block being dragged over
     // if block A is dragged onto block B position, then active = A, over = B
@@ -160,6 +181,8 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
         setTitle(res.data.page.title);
         // set blocks
         setBlocks(res.data.blocks);
+        // set acess role
+        setAccessRole(res.data.accessRole);
       } catch (error) {
         // set error message
         setError(error.response?.data?.message || "Failed to load page");
@@ -392,7 +415,7 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
     value: title,
     onSave: savePageTitle,
     delay: 800,
-    enabled: Boolean(pageId && page),
+    enabled: Boolean(pageId && page && canEdit),
   });
 
   /**
@@ -580,11 +603,19 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
           Version History
         </button>
 
-        {/* soft delete page by archiving it */}
-        <button onClick={archivePage}>Archive Page</button>
-
-        {/* permanently delete page */}
-        <button onClick={deletePage}>Delete Page</button>
+        <ShareModal
+          pageId={pageId}
+          isOpen={isShareModalOpen}
+          onClose={() => setIsShareModalOpen(false)}
+        />
+        {/* If the user is OWNER or EDITOR, they can see Share button */}
+        {canEdit && (
+          <button onClick={() => setIsShareModalOpen(true)}>Share</button>
+        )}
+        {/* If the user is OWNER, they can see Archive Page button */}
+        {isOwner && <button onClick={archivePage}>Archive Page</button>}
+        {/* If the user is OWNER, they can see Delete Page button */}
+        {isOwner && <button onClick={deletePage}>Delete Page</button>}
 
         {/* open page-level comments, not attached to a specific block */}
         <button
@@ -614,6 +645,7 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
       {/* attachment panel displays uploaded files and supports upload/download */}
       <AttachmentsPanel
         pageId={pageId}
+        canEdit={canEdit}
         isOpen={isAttachmentsOpen}
         onClose={() => setIsAttachmentsOpen(false)}
       />
@@ -622,7 +654,8 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
       <input
         className="editor-title"
         value={title}
-        onChange={(event) => handleTitleChange(event.target.value)}
+        onChange={(event) => canEdit && handleTitleChange(event.target.value)}
+        disabled={!canEdit} // only EDITOR and OWNER can edit title
         placeholder="Untitled"
       />
 
@@ -650,6 +683,7 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
               <Block
                 key={block._id}
                 block={block}
+                canEdit={canEdit} // only EDITOR and OWNER can edit blocks
                 remoteCursors={remoteCursors.filter(
                   (item) => item.cursor.blockId === block._id,
                 )}
@@ -679,10 +713,12 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
         </SortableContext>
       </DndContext>
 
-      {/* create a new paragraph block at the bottom of the page */}
-      <button className="add-block-button" onClick={createBlock}>
-        + Add text block
-      </button>
+      {/* Only OWNER and EDITOR can see Add text block button */}
+      {canEdit && (
+        <button className="add-block-button" onClick={createBlock}>
+          + Add text block
+        </button>
+      )}
     </div>
   );
 };

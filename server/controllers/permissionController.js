@@ -1,5 +1,6 @@
 const PagePermission = require("../models/Permission");
 const Page = require("../models/Page");
+const User = require("../models/User");
 
 /**
  * Create a page permission / share page
@@ -11,8 +12,8 @@ const createPagePermission = async (req, res) => {
   try {
     // get pageId from req params
     const { pageId } = req.params;
-    // get userId, role from req body
-    const { userId, role } = req.body;
+    // get email, role from req body
+    const { email, role } = req.body;
 
     // get page
     const page = await Page.findById(pageId);
@@ -32,19 +33,29 @@ const createPagePermission = async (req, res) => {
         .json({ message: "Do not have permission to share the page" });
     }
 
+    // get invited user with email
+    const invitedUser = await User.findOne({ email });
+    if (!invitedUser) {
+      return res
+        .status(404)
+        .json({ message: "User with this email not found" });
+    }
+
     // create page permission
     // new: return the new updated permission, not the old one
     // upsert: true = if this person has permission to this page -> update. if not -> insert new one
     const permission = await PagePermission.findOneAndUpdate(
-      { page: pageId, user: userId },
+      { page: pageId, user: invitedUser._id },
       {
         page: pageId,
-        user: userId,
-        role: role,
+        user: invitedUser._id,
+        role: role || "VIEWER",
         grantedBy: req.user._id,
       },
       { new: true, upsert: true },
-    );
+    )
+      .populate("user", "username email")
+      .populate("grantedBy", "username email");
 
     return res
       .status(200)

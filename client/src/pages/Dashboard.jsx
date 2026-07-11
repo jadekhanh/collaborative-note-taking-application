@@ -16,6 +16,10 @@ import { useEffect, useState } from "react";
 // useNavigate = automatically moves to a new link after login succeeds instead of user clicking the new link to move forward
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/axios";
+import CreateWorkspaceButton from "../components/workspace/CreateWorkspaceButton";
+import UserProfileDropdown from "../components/workspace/UserProfileDropdown";
+import WorkspaceCard from "../components/workspace/WorkspaceCard";
+import WorkspaceMembersModal from "../components/workspace/WorkspaceMembersModal";
 import { useAuth } from "../context/AuthContext";
 
 /**
@@ -38,6 +42,10 @@ const Dashboard = () => {
   // set error
   // "" at first
   const [error, setError] = useState("");
+  // set selected workspace
+  const [selectedWorkspace, setSelectedWorkspace] = useState(null);
+  // set React state for Workspace Members Modal
+  const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
 
   /**
    * Get all workspaces request
@@ -72,6 +80,11 @@ const Dashboard = () => {
     // prevent HTML forms to reload the page automatically
     event.preventDefault();
 
+    // if workspace name is empty after user typing and deleting, do nothing
+    if (!workspaceName.trim()) {
+      return;
+    }
+
     try {
       // create workspace by calling POST /api/auth/workspaces
       // workspaceName is passed from onChange={(event) => setWorkspaceName(event.target.value)}
@@ -90,7 +103,7 @@ const Dashboard = () => {
        */
       const res = await api.post("/auth/workspaces", { name: workspaceName });
 
-      // clear input workspace name since we're done create new one
+      // clear input workspace name since we're done creating new one
       setWorkspaceName("");
       // set current list of workspaces in which the latest createst workspace is at the top
       setWorkspaces([res.data.workspace, ...workspaces]);
@@ -98,6 +111,78 @@ const Dashboard = () => {
       // set error message
       // try to read res, data, message. if any part doesn't exist, ouput "Failed to create a workspace"
       setError(error.res?.data?.message || "Failed to create a workspace");
+    }
+  };
+
+  /**
+   * Handle rename workspace
+   */
+  const handleRenameWorkspace = async (workspace) => {
+    // read new workspace name from window prompt
+    const newName = window.prompt("New workspace name", workspace.name);
+
+    // if new name is empty, do nothing
+    if (!newName.trim()) {
+      return;
+    }
+
+    try {
+      // PUT /api/workspaces/:workspaceId to change name
+      const res = await api.put(`/workspaces/${workspace.id}`, {
+        name: newName,
+      });
+
+      // update list of workspaces
+      setWorkspaces((prevWorkspaces) => {
+        // create new list of workspaces
+        const newWorkspaces = [];
+        for (const current of prevWorkspaces) {
+          // if this workspace is the workspace whose name is changed, push the updated one we got from backend
+          if (current._id === workspace._id) {
+            newWorkspaces.push(res.data.workspace);
+          } else {
+            newWorkspaces.push(current);
+          }
+        }
+
+        return newWorkspaces;
+      });
+    } catch (error) {
+      setError(error.res?.data?.message || "Failed to rename workspace");
+    }
+  };
+
+  /**
+   * Handle delete workspace
+   */
+  const handleDeleteWorkspace = async (workspaceId) => {
+    // confirm that user wants to delete workspace from window prompt
+    if (
+      !window.confirm(
+        "Calm downnnnnnn are you sure you want to delete this workspace baby?",
+      )
+    ) {
+      return;
+    }
+    try {
+      // call DELETE api/workspaces/:workspaceId to delete workspace
+      await api.delete(`/workspaces/${workspaceId}`);
+
+      // update list of workspaces
+      setWorkspaces((prevWorkspaces) => {
+        // create new list of workspaces
+        const newWorkspaces = [];
+        for (const current of prevWorkspaces) {
+          // if this workspace isnt' the deleted workspace, push it to the new list
+          if (current._id !== workspaceId) {
+            newWorkspaces.push(current);
+          }
+        }
+
+        return newWorkspaces;
+      });
+    } catch (error) {
+      setError(error.res?.data?.message || "Failed to delete workspace");
     }
   };
 
@@ -112,46 +197,73 @@ const Dashboard = () => {
     navigate("/login");
   };
 
+  /**
+   * Handle when user opens the Workspace Member Modals
+   */
+  const handleOpenMembers = (workspace) => {
+    // set the current workspace
+    setSelectedWorkspace(workspace);
+    // opens the modal
+    setIsMembersModalOpen(true);
+  };
+
+  /**
+   * Handle when the members update the workspaces
+   */
+  const handleWorkspaceUpdated = (updatedWorkspace) => {
+    // update the workspaces list
+    setWorkspaces((prevWorkspaces) =>
+      prevWorkspaces.map((workspace) =>
+        // replace the updated workspace with the updated one
+        workspace._id === updatedWorkspace._id ? updatedWorkspace : workspace,
+      ),
+    );
+
+    // set current workspace with the updated workspace
+    setSelectedWorkspace(updatedWorkspace);
+  };
+
   // return UI
   return (
     <div className="dashboard-page">
       <div className="dashboard-header">
         <div>
-          {/* heading 1: Workspaces */}
           <h1>Workspaces</h1>
-          {/* Welcome heading */}
-          <p> Welcome, {user.username} </p>
+          <p>Welcome, {user?.username}</p>
         </div>
-        {/* Logout button */}
-        <button onClick={handleLogout}>Logout</button>
+
+        <UserProfileDropdown user={user} onLogout={handleLogout} />
       </div>
+
       {error && <p className="error">{error}</p>}
-      {/* Create Workspace form */}
-      <form className="workspace-form" onSubmit={handleCreateWorkspace}>
-        <input
-          type="text"
-          placeHolder="New workspace name" // faint hint text displayed inside the box before user types in
-          value={workspaceName}
-          onChange={(event) => setWorkspaceName(event.target.value)}
-        />
-        {/* Create Workspace button */}
-        <button type="submit">Create Workspace</button>
-      </form>
+
+      <CreateWorkspaceButton
+        workspaceName={workspaceName}
+        onWorkspaceNameChange={setWorkspaceName}
+        onCreateWorkspace={handleCreateWorkspace}
+      />
+
       <div className="workspace-grid">
-        {/* output the list of workspaces
-        each workspace displays a button that navigates to the workspace page, the h2 header with workspace name and how many members inside the workspace */}
         {workspaces.map((workspace) => (
-          <button
+          <WorkspaceCard
             key={workspace._id}
-            className="workspace-card"
-            // on click on button with workspace id navigates to the page of that workspace
-            onClick={() => navigate(`/workspaces/${workspace._id}`)}
-          >
-            <h2>{workspace.name}</h2>
-            <p>{workspace.members?.length || 0} member(s)</p>
-          </button>
+            workspace={workspace}
+            onOpen={(workspaceId) => navigate(`/workspaces/${workspaceId}`)}
+            onManageMembers={handleOpenMembers}
+            onRename={handleRenameWorkspace}
+            onDelete={handleDeleteWorkspace}
+          />
         ))}
       </div>
+      <WorkspaceMembersModal
+        workspaceId={selectedWorkspace?._id}
+        isOpen={isMembersModalOpen}
+        onClose={() => {
+          setIsMembersModalOpen(false);
+          setSelectedWorkspace(null);
+        }}
+        onWorkspaceUpdated={handleWorkspaceUpdated}
+      />
     </div>
   );
 };

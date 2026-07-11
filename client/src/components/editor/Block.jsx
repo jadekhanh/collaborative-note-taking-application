@@ -1,7 +1,7 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useEffect, useRef, useState } from "react";
-import useAutosave from "../hooks/useAutosave";
+import useAutosave from "../../hooks/useAutosave";
 
 /**
  * Block component
@@ -14,6 +14,7 @@ import useAutosave from "../hooks/useAutosave";
  * @param onTypingStarted - function from Editor to show typing indicator
  * @param onTypingStopped - function from Editor to stop typing indicator
  * @param onCursorMoved - function from Editor to broadcast cursor position
+ * @param: canEdit - boolean if user can edit block (VIEWER cannot)
  */
 const Block = ({
   block,
@@ -25,6 +26,7 @@ const Block = ({
   onTypingStarted,
   onTypingStopped,
   onCursorMoved,
+  canEdit = true,
 }) => {
   /**
    * Calls useSortable() hook that returns a draggable large object
@@ -36,7 +38,10 @@ const Block = ({
     transform, // while dragging, dnd library calculates how far the block moves
     transition, // allows the blocks to smoothly slides
     isDragging, // boolean to indicate if the user is dragging sth
-  } = useSortable({ id: block._id }); // id of draggable item = block id
+  } = useSortable({
+    id: block._id,
+    disabled: !canEdit,
+  }); // id of draggable item = block id, disabled = only VIEWER cannot drag items
 
   /**
    * Creates an object containing CSS style
@@ -55,7 +60,6 @@ const Block = ({
   const [localType, setLocalType] = useState(block.type);
   // React state that stores the current typing timeout
   const typingTimeoutRef = useRef(null);
-
   // get block text; if not exists, use ""
   const text = localContent?.text || "";
 
@@ -78,7 +82,7 @@ const Block = ({
     value: { type: localType, content: localContent },
     onSave: saveBlock,
     delay: 700,
-    enabled: Boolean(block?._id), // only save if the block has an ID (prevent saving invalid block)
+    enabled: Boolean(block?._id && canEdit), // only save if the block has an ID (prevent saving invalid block)
   });
 
   /**
@@ -124,7 +128,7 @@ const Block = ({
     typingTimeoutRef.current = setTimeout(() => {
       // onTyperStopped() is called only when the user stops typing for 1s
       if (onTypingStopped) {
-        onTypingStopped;
+        onTypingStopped();
       }
     }, 1000);
   };
@@ -210,6 +214,7 @@ const Block = ({
           <input
             className="block-input block-heading"
             value={text}
+            disabled={!canEdit} // disable input for VIEWERS
             onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
             placeholder="Heading"
             {...sharedCursorProps} // attach all cursor-tracking events
@@ -221,6 +226,7 @@ const Block = ({
           <input
             className="block-input block-subheading"
             value={text}
+            disabled={!canEdit} // disable input for VIEWERS
             onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
             placeholder="Subheading"
             {...sharedCursorProps} // attach all cursor-tracking events
@@ -234,6 +240,7 @@ const Block = ({
             <input
               className="block-input"
               value={text}
+              disabled={!canEdit} // disable input for VIEWERS
               onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
               placeholder="Bullet"
               {...sharedCursorProps} // attach all cursor-tracking events
@@ -246,6 +253,7 @@ const Block = ({
           <div className="checklist-row">
             <input
               type="checkbox"
+              disabled={!canEdit} // disable input for VIEWERS
               checked={localContent?.checked || false}
               onChange={(event) =>
                 setLocalContent({
@@ -258,6 +266,7 @@ const Block = ({
             <input
               className="block-input"
               value={text}
+              disabled={!canEdit} // disable input for VIEWERS
               onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
               placeholder="Checklist item"
               {...sharedCursorProps} // attach all cursor-tracking events
@@ -270,6 +279,7 @@ const Block = ({
           <textarea
             className="block-input block-code"
             value={text}
+            disabled={!canEdit} // disable input for VIEWERS
             onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
             placeholder="Code"
             {...sharedCursorProps}
@@ -281,6 +291,7 @@ const Block = ({
           <textarea
             className="block-input block-quote"
             value={text}
+            disabled={!canEdit} // disable input for VIEWERS
             onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
             placeholder="Quote"
             {...sharedCursorProps} // attach all cursor-tracking events
@@ -292,6 +303,7 @@ const Block = ({
           <textarea
             className="block-input"
             value={text}
+            disabled={!canEdit} // disable input for VIEWERS
             onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
             placeholder="Write something..."
             {...sharedCursorProps}
@@ -316,17 +328,21 @@ const Block = ({
       )}
 
       <div className="block-controls">
-        <button
-          className="drag-handle"
-          type="button"
-          {...attributes}
-          {...listeners}
-        >
-          ⋮⋮
-        </button>
+        {/* Only OWNER and EDITOR can see drag handle */}
+        {canEdit && (
+          <button
+            className="drag-handle"
+            type="button"
+            {...attributes}
+            {...listeners}
+          >
+            ⋮⋮
+          </button>
+        )}
 
         <select
           value={localType}
+          disabled={!canEdit}
           onChange={(event) => updateType(event.target.value)}
         >
           <option value="paragraph">Paragraph</option>
@@ -339,8 +355,14 @@ const Block = ({
         </select>
 
         <button onClick={() => onComment(block._id)}>Comment</button>
-        <button onClick={() => onCopy(block._id)}>Duplicate</button>
-        <button onClick={() => onDelete(block._id)}>Delete</button>
+
+        {/* Only EDITOR and OWNER can see these buttons */}
+        {canEdit && (
+          <>
+            <button onClick={() => onCopy(block._id)}>Copy</button>
+            <button onClick={() => onDelete(block._id)}>Delete</button>
+          </>
+        )}
 
         <span className="block-save-status">
           {blockSaveStatus === "saving" && "Saving..."}

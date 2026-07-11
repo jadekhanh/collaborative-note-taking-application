@@ -14,10 +14,10 @@ import { useEffect, useState } from "react";
 // useNavigate = automatically moves to a new link after login succeeds instead of user clicking the new link to move forward
 import { useParams } from "react-router-dom";
 import { api } from "../api/axios";
-import { Editor } from "../components/Editor";
-import { Sidebar } from "../components/Sidebar";
+import Editor from "../components/editor/Editor";
 import SearchModal from "../components/modals/SearchModal";
 import ArchivedPagesPanel from "../components/panels/ArchivedPagesPanel";
+import Sidebar from "../components/sidebar/Sidebar";
 
 /**
  * React component = a function that returns UI

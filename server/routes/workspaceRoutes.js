@@ -1,11 +1,13 @@
 const express = require("express");
 const {
   createWorkspace,
+  getMyWorkspaces,
+  getWorkspaceById,
   updateWorkspace,
   deleteWorkspace,
   addWorkspaceMember,
-  getMyWorkspaces,
-  getWorkspaceById,
+  updateWorkspaceMemberRole,
+  removeWorkspaceMember,
 } = require("../controllers/workspaceController");
 const { protect } = require("../middleware/authMiddleware");
 
@@ -30,5 +32,11 @@ router.delete("/:workspaceId", deleteWorkspace);
 
 // POST /api/workspaces/:workspaceId/members
 router.post("/:workspaceId/members", addWorkspaceMember);
+
+// PATCH /api/workspaces/:workspaceId/members/:memberId/role
+router.patch("/:workspaceId/members/:memberId/role", updateWorkspaceMemberRole);
+
+// DELETE /api/workspaces/:workspaceId/members/:memberId
+router.delete("/:workspaceId/members/:memberId", removeWorkspaceMember);
 
 module.exports = router;

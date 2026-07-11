@@ -1,4 +1,5 @@
 const Workspace = require("../models/Workspace");
+const User = require("../models/User");
 
 /**
  * Create a workspace
@@ -105,7 +106,7 @@ const updateWorkspace = async (req, res) => {
       // 403 = access denied
       return res
         .status(403)
-        .json({ message: "Do not have permission to update this workspace" });
+        .json({ message: "Only owner can update this workspace" });
     }
 
     // update workspace's name
@@ -141,7 +142,7 @@ const deleteWorkspace = async (req, res) => {
       // 403 = access denied
       return res
         .status(403)
-        .json({ message: "Do not have permission to delete this workspace" });
+        .json({ message: "Only owner can delete this workspace" });
     }
 
     await workspace.deleteOne();
@@ -160,8 +161,16 @@ const deleteWorkspace = async (req, res) => {
  */
 const addWorkspaceMember = async (req, res) => {
   try {
+    const { workspaceId } = req.params;
+    const { email, role } = req.body;
+
+    // check if provided email is empty
+    if (!email.trim()) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
     // get workspace
-    const workspace = await Workspace.findById(req.params.workspaceId);
+    const workspace = await Workspace.findById(workspaceId);
     if (!workspace) {
       return res.status(401).json({ message: "Workspace not found" });
     }
@@ -171,33 +180,167 @@ const addWorkspaceMember = async (req, res) => {
       // 403 = access denied
       return res
         .status(403)
-        .json({ message: "Do not have permission to modify this workspace" });
+        .json({ message: "Only owner can add members to workspace" });
     }
 
-    // check if this user is already a member in workspace
-    let isMember = false;
-    for (const member of workspace.members) {
-      if (member.user._id.toString() == req.body.userId.toString()) {
-        isMember = true;
-        break;
-      }
+    // get invited user
+    const invitedUser = await User.findOne({
+      email: email.trim().toLowerCase(),
+    });
+    if (!invitedUser) {
+      return res.status(404).json({
+        message: "User with this email was not found",
+      });
     }
-    if (isMember) {
-      return res
-        .status(409)
-        .json({ message: "User is already a member of workspace" });
+
+    // check if invited user is already a workspace member
+    const alreadyMember = workspace.members.some(
+      (member) => member.user.toString() === invitedUser._id.toString(),
+    );
+    if (alreadyMember) {
+      return res.status(409).json({
+        message: "User is already a workspace member",
+      });
     }
 
     // push user into members list
-    workspace.members.push({ user: req.body.userId, role: req.body.role });
+    workspace.members.push({ user: invitedUser._id, role: role });
+
+    // populate fields
+    await workspace.populate("members.user", "username email");
 
     return res
       .status(200)
-      .json({ message: "Successfully add member to workspace" });
+      .json({ message: "Successfully added member to workspace" });
   } catch (error) {
     // 500 = internal error
     return res.status(500).json({
       message: "Failed to add member to workspace",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Update workspace member role
+ * Only workspace owner can call this function
+ * Owner cannot change their role via this endpoint
+ */
+const updateWorkspaceMemberRole = async (req, res) => {
+  try {
+    // extract workspaceId and memberId from req params
+    const { workspaceId, memberId } = req.params;
+    // extract role from req body
+    const { role } = req.body;
+
+    // confirm role is either viewer or editor
+    if (role !== "VIEWER" || role !== "EDITOR") {
+      return res.status(400).json({ message: "Role must be EDITOR or VIEWER" });
+    }
+
+    // get workspace
+    const workspace = await Workspace.findById(workspaceId);
+    if (!workspace) {
+      return res.status(404).json({ message: "Workspace not found" });
+    }
+
+    // check if this user is workspace owner
+    if (workspace.owner._id.toString() !== req.user._id.toString()) {
+      return res
+        .status(403)
+        .json({ message: "Only workspace owner can update member role" });
+    }
+
+    // get member
+    const member = workspace.members.find(
+      (workspaceMember) =>
+        workspaceMember.user.toString() === memberId.toString(),
+    );
+    if (!member) {
+      return res.status(404).json({ message: "Member not found" });
+    }
+
+    // owner cannot change their role
+    if (member.user.toString() === workspace.owner.toString()) {
+      return res
+        .status(403)
+        .json({ message: "Workspace owner's role cannot be changed" });
+    }
+
+    // update member role
+    member.role = role;
+    await workspace.save();
+    await workspace.populate("members.user", "username email");
+
+    return res
+      .status(200)
+      .json({ message: "Successfully update member's role", workspace });
+  } catch (error) {
+    // 500 = internal error
+    return res.status(500).json({
+      message: "Failed to update workspace member role",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Remove workspace member
+ */
+const removeWorkspaceMember = async (req, res) => {
+  try {
+    // extract workspaceId and memberId from req params
+    const { workspaceId, memberId } = req.params;
+
+    // get workspace
+    const workspace = await Workspace.findById(workspaceId);
+    if (!workspace) {
+      return res.status(404).json({ message: "Workspace not found" });
+    }
+
+    // check if this user is workspace owner
+    if (workspace.owner._id.toString() !== req.user._id.toString()) {
+      return res
+        .status(403)
+        .json({ message: "Only workspace owner can remove member" });
+    }
+
+    // get member
+    const member = workspace.members.find(
+      (workspaceMember) =>
+        workspaceMember.user.toString() === memberId.toString(),
+    );
+    if (!member) {
+      return res.status(404).json({ message: "Member not found" });
+    }
+
+    // owner cannot remove themselves
+    if (member.user.toString() === workspace.owner.toString()) {
+      return res
+        .status(403)
+        .json({ message: "Workspace owner cannot be removed" });
+    }
+
+    // update workspace members list
+    const updatedMembers = [];
+    for (const mem of workspace.members) {
+      if (mem.user.toString() !== memberId.toString()) {
+        updateWorkspace.push(mem);
+      }
+    }
+    workspace.members = updatedMembers;
+
+    await workspace.save();
+    await workspace.populate("members.user", "username email");
+
+    return res.status(200).json({
+      message: "Successfully removed member from workspace",
+      workspace,
+    });
+  } catch (error) {
+    // 500 = internal error
+    return res.status(500).json({
+      message: "Failed to remove member from workspace",
       error: error.message,
     });
   }
@@ -211,4 +354,6 @@ module.exports = {
   addWorkspaceMember,
   getMyWorkspaces,
   getWorkspaceById,
+  updateWorkspaceMemberRole,
+  removeWorkspaceMember,
 };

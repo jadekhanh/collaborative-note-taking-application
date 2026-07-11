@@ -7,8 +7,9 @@ import api from "../../api/axios";
  * - pageId: page that the attachment belongs to
  * - isOpen: whether the panel is currently opened
  * - onClose: function from Editor. When called, Editor closes the panel
+ * - canEdit: whether the user has editor access to the page
  */
-const AttachmentPanel = ({ pageId, isOpen, onClose }) => {
+const AttachmentPanel = ({ pageId, isOpen, onClose, canEdit }) => {
   // set React state for list of attachments
   const [attachments, setAttachments] = useState([]);
   // set React state for file that user selects: it stores { name, size, type, lastModified }
@@ -115,15 +116,17 @@ const AttachmentPanel = ({ pageId, isOpen, onClose }) => {
       {error && <p className="error">{error}</p>}
 
       {/* A form to upload attachment */}
-      <form className="attachment-form" onSubmit={uploadAttachment}>
-        <input
-          type="file"
-          onChange={(event) => setSelectedFile(event.target.files[0])}
-        />
+      {canEdit && (
+        <form className="attachment-form" onSubmit={uploadAttachment}>
+          <input
+            type="file"
+            onChange={(event) => setSelectedFile(event.target.files[0])}
+          />
 
-        {/* Upload Attachment button */}
-        <button type="submit">Upload Attachment</button>
-      </form>
+          {/* Upload Attachment button */}
+          <button type="submit">Upload Attachment</button>
+        </form>
+      )}
 
       {/* Attachments list */}
       <div className="attachment-list">
@@ -144,9 +147,11 @@ const AttachmentPanel = ({ pageId, isOpen, onClose }) => {
             </a>
 
             {/* Button to delete attachment */}
-            <button onClick={() => deleteAttachment(attachment._id)}>
-              Delete
-            </button>
+            {canEdit && (
+              <button onClick={() => deleteAttachment(attachment._id)}>
+                Delete
+              </button>
+            )}
           </div>
         ))}
       </div>

@@ -751,3 +751,137 @@ button {
   padding: 6px 10px;
   border-radius: 6px;
 }
+
+.share-modal {
+  width: 600px;
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.share-form {
+  display: flex;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.share-form input {
+  flex: 1;
+}
+
+.permission-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 10px 0;
+}
+
+.workspace-card {
+  padding: 0;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.workspace-card-main {
+  width: 100%;
+  text-align: left;
+  padding: 20px;
+  border: none;
+  background: white;
+}
+
+.workspace-card-main h2 {
+  margin: 0 0 8px;
+}
+
+.workspace-card-main p {
+  margin: 0;
+  color: #666;
+}
+
+.workspace-card-actions {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid #eee;
+}
+
+.workspace-card-actions button {
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: #eee;
+}
+
+.user-profile-dropdown {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.user-profile-dropdown p {
+  margin: 4px 0 0;
+  color: #666;
+}
+
+.user-profile-dropdown button {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  background: #222;
+  color: white;
+}
+
+.workspace-member-form {
+  display: flex;
+  gap: 8px;
+  margin: 20px 0;
+}
+
+.workspace-member-form input {
+  flex: 1;
+  padding: 9px;
+}
+
+.workspace-member-form select,
+.workspace-member-form button {
+  padding: 9px;
+}
+
+.workspace-member-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid #eee;
+  padding: 12px 0;
+}
+
+.workspace-member-card p {
+  margin: 4px 0 0;
+  color: #666;
+}
+
+.member-role {
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.workspace-member-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-member-actions select,
+.workspace-member-actions button {
+  padding: 7px 9px;
+}
+
+.workspace-member-actions button {
+  border: none;
+  border-radius: 6px;
+  background: #eee;
+}
