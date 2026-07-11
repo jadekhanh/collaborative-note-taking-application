@@ -24,25 +24,30 @@ import Sidebar from "../components/sidebar/Sidebar";
  * This is Workspace page
  */
 const Workspace = () => {
-  // extract workspaceId from params
-  // React Router extracts it from url
+  // Extract workspaceId from the URL
   const { workspaceId } = useParams();
 
-  // set workspace information { id, name, members }; null at first
+  // Current workspace information
   const [workspace, setWorkspace] = useState(null);
-  // set workspace pages state; [] at first
+
+  // All non-archived pages inside the workspace
   const [pages, setPages] = useState([]);
-  // set which page is currently open; null at first
-  const [selectedPageId, setSelectedPageId] = useState();
-  // set React state for error
-  const [error, setError] = useState();
-  // set React state for Search modal
+
+  // ID of the page currently opened in Editor
+  const [selectedPageId, setSelectedPageId] = useState(null);
+
+  // Error displayed when a request fails
+  const [error, setError] = useState("");
+
+  // Controls whether the search modal is open
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  // set React state for Archived Pages panel
+
+  // Controls whether the archived-pages panel is open
   const [isArchivedPagesOpen, setIsArchivedPagesOpen] = useState(false);
 
   // useEffect() = run the following code whenever the component loads or when specified dependencies change
   useEffect(() => {
+    // load the workspace and its pages whenever workspaceId changes
     const loadWorkspace = async () => {
       try {
         // get workspace from calling GET /api/workspaces/:workspaceId
@@ -52,8 +57,10 @@ const Workspace = () => {
 
         // get pages from calling GET/api/pages/workspaces/:workspaceId/
         const pagesResponse = await api.get(`/pages/workspaces/${workspaceId}`);
+
         // set pages from res
         setPages(pagesResponse.data.pages);
+
         // if there are pages, automatically opens the 1st page
         if (pagesResponse.data.pages.length > 0) {
           setSelectedPageId(pagesResponse.data.pages[0]._id);
@@ -70,10 +77,15 @@ const Workspace = () => {
 
   /**
    * Handle create a page
-   * Optional param: parentPage, else null
+   * Create either:
+   * - a top-level page when parentPage = null
+   * - a nested child page when parentPage is a pageId
    */
   const handleCreatePage = async (parentPage = null) => {
     try {
+      // reset error message
+      setError("");
+
       // create page by calling POST /api/pages/
       const res = await api.post("/pages", {
         title: "Untitled",
@@ -82,8 +94,8 @@ const Workspace = () => {
       });
 
       // set list of pages where the newly created page appear last
-      setPages([...pages, res.data.page]);
-      // set the page that is currently opened as newly created page
+      setPages((prevPages) => [...prevPages, res.data.page]);
+      // open the newly created page
       setSelectedPageId(res.data.page._id);
     } catch (error) {
       setError(error.response?.data?.message || "Failed to create page");
@@ -94,7 +106,21 @@ const Workspace = () => {
    * Handle restore page
    */
   const handlePageRestored = (restoredPage) => {
-    setPages((prevPages) => [...prevPages, restoredPage]);
+    // set lits of pages inside the workspace
+    setPages((prevPages) => {
+      // prevent accidentally adding the same page twice
+      const alreadyExists = prevPages.some(
+        (page) => page._id === restoredPage._id,
+      );
+
+      if (alreadyExists) {
+        return prevPages;
+      }
+
+      return [...prevPages, restoredPage];
+    });
+
+    // open the restored page
     setSelectedPageId(restoredPage._id);
   };
 
@@ -169,24 +195,26 @@ const Workspace = () => {
   // return page UI
   return (
     <div className="workspace-page">
-      {/* Search button to start page and block search */}
-      <button className="search-button" onClick={() => setIsSearchOpen(true)}>
-        Search
-      </button>
+      {/* SearchModal remains owned by Workspace because selecting a search result changes selectedPageId in Workspace state */}
       <SearchModal
         isOpen={isSearchOpen}
-        onClose={() => setIsSearchOpen(close)}
-        onSelectPage={selectedPageId}
+        onClose={() => setIsSearchOpen(false)}
+        onSelectPage={(pageId) => {
+          setSelectedPageId(pageId);
+          setIsSearchOpen(false);
+        }}
       />
 
-      {/* Archive button to archive current page */}
+      {/* Open the archived-pages panel */}
       <button
+        type="button"
         className="floating-archive-button"
         onClick={() => setIsArchivedPagesOpen(true)}
       >
         Archived
       </button>
 
+      {/* Display archived pages and allow restoring them */}
       <ArchivedPagesPanel
         workspaceId={workspaceId}
         isOpen={isArchivedPagesOpen}
@@ -194,37 +222,42 @@ const Workspace = () => {
         onPageRestored={handlePageRestored}
       />
 
-      {/* create sidebar */}
+      {/*
+       * Sidebar displays workspace information and the nested page tree.
+       * The Search button lives inside Sidebar
+       */}
       <Sidebar
-        // pass workspace
         workspace={workspace}
-        // pass pages
         pages={pages}
-        // tell sidebar which page is highlighted/selected
         selectedPageId={selectedPageId}
-        // callback functions: Sidebar can tell Workspace if it selects or creates a page so Workspace can update its state
-        // Sidebar, if you select a page, call this function
-        // Sidebar, if you create a page, call this function
         onSelectPage={setSelectedPageId}
         onCreatePage={handleCreatePage}
+        onOpenSearch={() => setIsSearchOpen(true)}
       />
+
       <main className="workspace-main">
-        {/* show error if it exists */}
+        {/* Display an API error when one exists. */}
         {error && <p className="error">{error}</p>}
-        {/* if a page is selected, show editor */}
+
         {selectedPageId ? (
+          /*
+           * Editor owns page editing behavior, but Workspace owns
+           * the page list shown in Sidebar. When a page is edited via Editor, call these callbacks so Workspace are notified
+           */
           <Editor
             pageId={selectedPageId}
-            // callback functions: Editor can tell workspace if it updates/deletes a page and workspace can update its state
-            onPageUpdated={handleUpdatePage} // Editor, if you update a page, call this function
-            onPageDeleted={handleDeletePage} // Editor, if you delete a page, call this function
-            onPageArchived={handlePageArchived} // Editor, if you archive a page, call this function
+            onPageUpdated={handleUpdatePage}
+            onPageDeleted={handleDeletePage}
+            onPageArchive={handlePageArchived}
           />
         ) : (
-          // if no page is selected, shows empty editor that has a button to create a page
+          /*
+           * Display an empty state when the workspace has no pages or when no page is selected
+           */
           <div className="empty-editor">
             <h2>No page selected</h2>
-            <button onClick={() => handleCreatePage(null)}>
+
+            <button type="button" onClick={() => handleCreatePage(null)}>
               Create a page
             </button>
           </div>

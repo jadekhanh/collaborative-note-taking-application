@@ -1,15 +1,4 @@
-import {
-  closestCenter,
-  DndContext,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+import { arrayMove } from "@dnd-kit/sortable";
 import { useEffect, useState } from "react";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
@@ -19,169 +8,79 @@ import ShareModal from "../modals/ShareModal";
 import VersionModal from "../modals/VersionModal";
 import AttachmentsPanel from "../panels/AttachmentsPanel";
 import CommentsPanel from "../panels/CommentsPanel";
-import Block from "./Block";
+import BlockList from "./BlockList";
+import EditorToolbar from "./EditorToolbar";
 
 /**
- * Create the Editor component to edit the page content
- * @param {string} pageId - The id of the page to edit
- * @param {Function} onPageUpdated - The function to call when the page is updated
- * @param {Function} onPageDeleted - The function to call when the page is deleted
- * @param {Function} onPageArchive - The function to call when the page is archived
- * @returns {JSX.Element} - The Editor component
+ * Main page editor
+ *
+ * Editor owns:
+ * - page and block state
+ * - Socket.IO collaboration
+ * - page-level actions
+ * - comments, attachments, sharing, and version panels
+ *
+ * @param {string} pageId - ID of page currently opens
+ * @param {Function} onPageUpdated - Notify Workspace when page data changes
+ * @param {Function} onPageDeleted - Notify Workspace when page is deleted
+ * @param {Function} onPageArchive - Notify Workspace when page is archived
  *
  * Notes:
  * Editor has onPageUpdated since editing happens inside the Editor, then Workspace needs Editor calls the callback to update pages state
  * Editor can delete pages so Workspace needs Editor to call the callback to update the pages list
  */
 const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
-  // get user and socket
+  // get current user and shared Socket.IO connection
   const { user } = useAuth();
   const socket = useSocket();
 
-  // React state to display the page
+  // Current page data
   const [page, setPage] = useState(null);
-  // React state to display the blocks
+  // Ordered list of blocks belonging to the current page
   const [blocks, setBlocks] = useState([]);
-  // React state to display the page title
+  // Current page title
   const [title, setTitle] = useState("");
-  // React state to store active users in current page
+  // Users currently connected to this page's Socket.IO room
   const [activeUsers, setActiveUsers] = useState([]);
-  // React state to display the error message
+  // Request or application error displayed inside the editor
   const [error, setError] = useState("");
-  // React state to store boolean if version modal is opened
-  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
-  // React state to open comment panel
-  const [isCommentsOpen, setIsCommentsOpen] = useState(false);
-  // React state to set block to add comment
+  // Current comments attached to a specific block (null = page-level comments)
   const [selectedCommentBlockId, setSelectedCommentBlockId] = useState(null);
-  // React state to open attachment panel
-  const [isAttachmentsOpen, setIsAttachmentsOpen] = useState(false);
-  // React state to display typing users
+  // Users who are currently typing
   const [typingUsers, setTypingUsers] = useState([]);
-  // React state to display cursors
+  // Latest cursor position for every remote collaborator
   const [remoteCursors, setRemoteCursors] = useState([]);
-  // React state to open Share Modal
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  // React state for user's page access role
+  // Current user's permission for this page
   const [accessRole, setAccessRole] = useState("VIEWER");
-
-  /**
-   * Boolean check if a user can edit this page
-   * Used for restrictive buttons
-   */
+  // Modal and panel visibility state
+  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
+  const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+  const [isAttachmentsOpen, setIsAttachmentsOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  // OWNER and EDITOR may change page content
   const canEdit = accessRole === "OWNER" || accessRole === "EDITOR";
-  /**
-   * Boolean check if this user is owner of the page
-   * Used for restrictive buttons
-   */
+  // Only the actual page owner may share, archive, or delete the page
   const isOwner = accessRole === "OWNER";
 
   /**
-   * Create sensors into one object
-   * Sensor = tells dnd-kit how the user starts dragging = dragging settings
-   * PointerSensor = mouse, touchpad, touchscreen
-   */
-  const sensors = useSensors(
-    // create 1 sensor
-    useSensor(PointerSensor, {
-      // user must move 6 pixels before dragging begins
-      // without this, click = immediate drag
-      activationConstraint: {
-        distance: 6,
-      },
-    }),
-  );
-
-  /**
-   * Save new blocks order to MongoDB + Emit to other collaborators through Socket.IO
-   * @param: already reorder blocks list
-   */
-  const saveBlockOrder = async (reorderedBlocks) => {
-    // return a list of [{blockId, order},...]
-    const blocksToUpdate = reorderedBlocks.map((block, index) => ({
-      blockId: block._id,
-      order: index,
-    }));
-
-    // call PUT /blocks/page/:pageId/reorder to save new blocks list to backend to update MongoDB
-    await api.put(`/blocks/page/${pageId}/reorder`, {
-      blocks: blocksToUpdate,
-    });
-
-    // tell everyone else inside the page that blocks are ordered
-    socket.emit("blocks-reordered", {
-      pageId,
-      // loop over blocks list
-      blocks: reorderedBlocks.map((block, index) => ({
-        ...block, // copy the block
-        order: index, // replace old with new order
-      })),
-    });
-  };
-
-  /**
-   * Handle drag ends
-   * This function is called when user releases mouse after done dragging
-   */
-  const handleDragEnd = async (event) => {
-    // if this user is VIEWER, do nothing
-    if (!canEdit) {
-      return;
-    }
-
-    // active = the block being dragged
-    // over = the block being dragged over
-    // if block A is dragged onto block B position, then active = A, over = B
-    // result: A is where B was at, B and other blocks below gets moved down 1 position
-    const { active, over } = event;
-
-    // !over = if user drops outside
-    // active = over: if user drags block and drops it back onto same position
-    if (!over || active.id === over.id) return;
-
-    // find old position
-    const oldIndex = blocks.findIndex((block) => block._id === active.id);
-    // find new position
-    const newIndex = blocks.findIndex((block) => block._id === over.id);
-
-    // arrayMove() = helper function to write swap logic
-    // before ABCD, C gets moved up front, returns new list: CABD
-    // returns new blocks list
-    const reorderedBlocks = arrayMove(blocks, oldIndex, newIndex).map(
-      // update every block order field
-      (block, index) => ({
-        ...block,
-        order: index,
-      }),
-    );
-
-    // update React
-    setBlocks(reorderedBlocks);
-
-    try {
-      // save new block lists in backend
-      await saveBlockOrder(reorderedBlocks);
-    } catch (error) {
-      setError(error.response?.data?.message || "Failed to reorder blocks");
-    }
-  };
-
-  /**
-   * Set page and title and blocks whenever pageId is rendered
+   * Load page, title, ordered blocks whenever pageId is rendered
    */
   useEffect(() => {
     const loadPage = async () => {
       try {
+        // reset error message
+        setError("");
+
         // call GET /api/pages/:pageId
         const res = await api.get(`/pages/${pageId}`);
 
-        // set page
+        // load page
         setPage(res.data.page);
-        // set title
+        // load title
         setTitle(res.data.page.title);
-        // set blocks
+        // load blocks
         setBlocks(res.data.blocks);
-        // set acess role
+        // load access role
         setAccessRole(res.data.accessRole);
       } catch (error) {
         // set error message
@@ -210,7 +109,7 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
       return;
     }
 
-    // when frontend emits a message to backend that a user joins pageId
+    // frontend emits a message to backend that a user joins pageId
     socket.emit("join-page", { pageId, user });
 
     // listen for Socket.IO event sent by backend when a user joins the page
@@ -245,6 +144,12 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
           newBlocks.push(prevBlock);
         }
         newBlocks.push(block);
+
+        // sort the blocks in correct order
+        newBlocks.sort(
+          (firstBlock, secondBlock) => firstBlock.order - secondBlock.order,
+        );
+
         return newBlocks;
       });
     });
@@ -343,7 +248,7 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
       });
     });
 
-    // listen for Socket.IO event sent by backend when another user moves thier cursor inside the page
+    // listen for Socket.IO event sent by backend when another user moves their cursor inside the page
     socket.on("receive-cursor-moved", (data) => {
       // extract user and cursor from data
       const { user, cursor } = data;
@@ -383,6 +288,84 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
   }, [socket, pageId, user]);
 
   /**
+   * Save new blocks order to MongoDB + Emit to other collaborators through Socket.IO
+   * @param: already reorder blocks list
+   */
+  const saveBlockOrder = async (reorderedBlocks) => {
+    // return a list of [{blockId, order},...]
+    const blocksToUpdate = reorderedBlocks.map((block, index) => ({
+      blockId: block._id,
+      order: index,
+    }));
+
+    // call PUT /blocks/page/:pageId/reorder to save new blocks list to backend to update MongoDB
+    await api.put(`/blocks/page/${pageId}/reorder`, {
+      blocks: blocksToUpdate,
+    });
+
+    // tell everyone else inside the page that blocks are reordered
+    socket.emit("blocks-reordered", {
+      pageId,
+      blocks: reorderedBlocks,
+    });
+  };
+
+  /**
+   * Handle drag ends
+   * This function is called when user releases mouse after done dragging
+   *
+   * dnd kit passes 1 event object containing:
+   * active = the block being dragged
+   * over = the block being dragged over
+   * if block A is dragged onto block B position, then active = A, over = B
+   * result: A is where B was at, B and other blocks below gets moved down 1 position
+   */
+  const handleDragEnd = async ({ active, over }) => {
+    // if this user is VIEWER, do nothing
+    if (!canEdit || !over || active.id === over.id) {
+      return;
+    }
+
+    // find old position
+    const oldIndex = blocks.findIndex((block) => block._id === active.id);
+    // find new position
+    const newIndex = blocks.findIndex((block) => block._id === over.id);
+
+    // stop if either sortable ID cannot be found
+    if (oldIndex === -1 || newIndex === -1) {
+      return;
+    }
+
+    // get previous blocks
+    const previousBlocks = blocks;
+
+    // arrayMove() = helper function to write swap logic
+    // before ABCD, C gets moved up front, returns new list: CABD
+    // returns new blocks list
+    const reorderedBlocks = arrayMove(blocks, oldIndex, newIndex).map(
+      // update every block order field
+      (block, index) => ({
+        ...block,
+        order: index,
+      }),
+    );
+
+    // update React
+    setBlocks(reorderedBlocks);
+
+    try {
+      // save new block lists in backend
+      await saveBlockOrder(reorderedBlocks);
+    } catch (error) {
+      // restore old ordering if saving fails
+      setBlocks(previousBlocks);
+
+      // display error message
+      setError(error.response?.data?.message || "Failed to reorder blocks");
+    }
+  };
+
+  /**
    * useAutosave Hook calls this function after user stops typing title for 800ms
    */
   const savePageTitle = async (newTitle) => {
@@ -393,6 +376,7 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
 
     // render page with updated page title
     setPage(res.data.page);
+
     // since Workspace owns the list of pages, when page title changes, Workspace needs to know
     // tell Workspace that this page has a new title, so Workspace can updates the sidebar
     onPageUpdated(res.data.page);
@@ -410,6 +394,7 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
   /**
    * Autosave page title
    * Everytime setTitle() changes title, useAutosave() notices, then it waits 800ms then it calls savePageTitle()
+   * Viewers cannot trigger title autosave
    */
   const titleSaveStatus = useAutosave({
     value: title,
@@ -420,8 +405,14 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
 
   /**
    * Create a page block
+   * Default block = paragraph
    */
   const createBlock = async () => {
+    // if this person is viewer, do nothing
+    if (!canEdit) {
+      return;
+    }
+
     try {
       // call POST /api/blocks to create new page block
       const res = await api.post("/blocks", {
@@ -432,13 +423,13 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
       });
 
       // set the list of blocks with the new block is placed last
-      setBlocks([...blocks, res.data.block]);
+      setBlocks((prevBlocks) => [...prevBlocks, res.data.block]);
 
       // frontend sends message to everyone that a block is created
       socket.emit("block-created", { pageId, block: res.data.block });
     } catch (error) {
       // set error message
-      setError(error.response?.data?.message || "Failed to create page block");
+      setError(error.response?.data?.message || "Failed to create block");
     }
   };
 
@@ -446,6 +437,11 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
    * Update a page block
    */
   const updateBlock = async (blockId, updates) => {
+    // if this user is viewer, do nothing
+    if (!canEdit) {
+      return;
+    }
+
     try {
       // call PUT /api/blocks/:blockId to update block
       const res = await api.put(`/blocks/${blockId}`, updates);
@@ -463,6 +459,9 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
     } catch (error) {
       // set error message
       setError(error.response?.data?.message || "Failed to update block");
+
+      // throw error again so Block's useAutosave hoook can display its' "Save failed" status
+      throw error;
     }
   };
 
@@ -470,6 +469,11 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
    * Copy a block
    */
   const copyBlock = async (blockId) => {
+    // if this user is viewer, do nothing
+    if (!canEdit) {
+      return;
+    }
+
     try {
       // call POST /api/blocks/:blockId/copy
       const res = await api.post(`/blocks/${blockId}/copy`);
@@ -489,6 +493,11 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
    * Delete a block
    */
   const deleteBlock = async (blockId) => {
+    // if this user is viewer, do nothing
+    if (!canEdit) {
+      return;
+    }
+
     try {
       // call DELETE /api/blocks/:blockId to delete a block
       await api.delete(`/blocks/${blockId}`);
@@ -511,9 +520,15 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
    * Archive a page
    */
   const archivePage = async () => {
+    // if this user is not owner, do nothing
+    if (!isOwner) {
+      return;
+    }
+
     try {
-      // call PATCH /api/pages/:pageId/archieve to archieve a page
+      // call PATCH /api/pages/:pageId/archieve to archive a page
       await api.patch(`/pages/${pageId}/archive`);
+
       // tell Workspace we archive this page on Editor
       onPageArchive(pageId);
     } catch (error) {
@@ -526,6 +541,11 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
    * Delete a page
    */
   const deletePage = async () => {
+    // if this user is not owner, do nothing
+    if (!isOwner) {
+      return;
+    }
+
     // confirm user that they want to delete page
     if (
       !window.confirm(
@@ -534,6 +554,7 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
     ) {
       return;
     }
+
     try {
       // call DELETE /api/pages/:pageId to delete page
       await api.delete(`/pages/${pageId}`);
@@ -561,6 +582,53 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
   };
 
   /**
+   * Open page-level comments
+   */
+  const openPageComments = () => {
+    setSelectedCommentBlockId(null);
+    setIsCommentsOpen(true);
+  };
+
+  /**
+   * Open comments attached to one block
+   */
+  const openBlockComments = (blockId) => {
+    setSelectedCommentBlockId(blockId);
+    setIsCommentsOpen(true);
+  };
+
+  /**
+   * Notify collaborators that the current user started typing
+   */
+  const emitTypingStarted = () => {
+    socket.emit("typing-started", {
+      pageId,
+      user,
+    });
+  };
+
+  /**
+   * Notify collaborators that the current user stopped typing
+   */
+  const emitTypingStopped = () => {
+    socket.emit("typing-stopped", {
+      pageId,
+      user,
+    });
+  };
+
+  /**
+   * Broadcast the current user's block and character position
+   */
+  const emitCursorMoved = (cursor) => {
+    socket.emit("cursor-moved", {
+      pageId,
+      user,
+      cursor,
+    });
+  };
+
+  /**
    * While a page is loading, display loading message
    */
   if (!page) {
@@ -569,80 +637,64 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
 
   // return UI
   return (
-    // main editor container
     <div className="editor">
-      {/* display error message if something fails */}
+      {/* Display the most recent request error */}
       {error && <p className="error">{error}</p>}
 
-      {/* display users currently viewing/editing this page */}
+      {/* Display everyone currently connected to this page */}
       <div className="presence-bar">
         {activeUsers.map((activeUser) => (
           <span key={activeUser.socketId}>🍥 {activeUser.username}</span>
         ))}
       </div>
 
-      {/* display users who are currently typing */}
+      {/* Display collaborators who are actively typing */}
       {typingUsers.length > 0 && (
         <p className="typing-indicator">
-          {typingUsers.map((item) => item.username).join(", ")} editing...
+          {typingUsers.map((typingUser) => typingUser.username).join(", ")}{" "}
+          editing...
         </p>
       )}
 
-      {/* page action buttons */}
-      <div className="editor-actions">
-        {/* version history modal for saving/restoring page snapshots */}
-        <VersionModal
-          isOpen={isVersionModalOpen}
-          onClose={() => setIsVersionModalOpen(false)}
-          pageId={pageId}
-          onRestore={restoreVersion}
-        />
+      {/* Page-level editor actions */}
+      <EditorToolbar
+        isOwner={isOwner}
+        canEdit={canEdit}
+        onOpenComments={openPageComments}
+        onOpenAttachments={() => setIsAttachmentsOpen(true)}
+        onOpenVersions={() => setIsVersionModalOpen(true)}
+        onOpenShare={() => setIsShareModalOpen(true)}
+        onArchivePage={archivePage}
+        onDeletePage={deletePage}
+      />
 
-        {/* open version history modal */}
-        <button onClick={() => setIsVersionModalOpen(true)}>
-          Version History
-        </button>
+      {/* Version history and restoration UI */}
+      <VersionModal
+        isOpen={isVersionModalOpen}
+        onClose={() => setIsVersionModalOpen(false)}
+        pageId={pageId}
+        onRestore={restoreVersion}
+      />
 
-        <ShareModal
-          pageId={pageId}
-          isOpen={isShareModalOpen}
-          onClose={() => setIsShareModalOpen(false)}
-        />
-        {/* If the user is OWNER or EDITOR, they can see Share button */}
-        {canEdit && (
-          <button onClick={() => setIsShareModalOpen(true)}>Share</button>
-        )}
-        {/* If the user is OWNER, they can see Archive Page button */}
-        {isOwner && <button onClick={archivePage}>Archive Page</button>}
-        {/* If the user is OWNER, they can see Delete Page button */}
-        {isOwner && <button onClick={deletePage}>Delete Page</button>}
+      {/* Owner-only page permission management UI */}
+      <ShareModal
+        pageId={pageId}
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+      />
 
-        {/* open page-level comments, not attached to a specific block */}
-        <button
-          onClick={() => {
-            setSelectedCommentBlockId(null);
-            setIsCommentsOpen(true);
-          }}
-        >
-          Page Comments
-        </button>
+      {/* Page-level or block-level threaded discussions */}
+      <CommentsPanel
+        pageId={pageId}
+        blockId={selectedCommentBlockId}
+        isOpen={isCommentsOpen}
+        onClose={() => {
+          setIsCommentsOpen(false);
+          setSelectedCommentBlockId(null);
+        }}
+      />
 
-        {/* comments panel supports both page-level and block-level discussions */}
-        <CommentsPanel
-          pageId={pageId}
-          blockId={selectedCommentBlockId}
-          isOpen={isCommentsOpen}
-          onClose={() => {
-            setIsCommentsOpen(false);
-            setSelectedCommentBlockId(null);
-          }}
-        />
-      </div>
-
-      {/* open attachment panel for uploaded files/images */}
-      <button onClick={() => setIsAttachmentsOpen(true)}>Attachments</button>
-
-      {/* attachment panel displays uploaded files and supports upload/download */}
+      {/* File upload, download, preview, and deletion UI */}
       <AttachmentsPanel
         pageId={pageId}
         canEdit={canEdit}
@@ -650,72 +702,49 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
         onClose={() => setIsAttachmentsOpen(false)}
       />
 
-      {/* editable page title; autosaves after user stops typing */}
+      {/* Editable page title for owners and editors */}
       <input
         className="editor-title"
         value={title}
-        onChange={(event) => canEdit && handleTitleChange(event.target.value)}
-        disabled={!canEdit} // only EDITOR and OWNER can edit title
+        onChange={(event) => handleTitleChange(event.target.value)}
+        disabled={!canEdit}
         placeholder="Untitled"
       />
 
-      {/* title autosave status */}
-      <p className="save-status">
-        {titleSaveStatus === "saving" && "Saving title..."}
-        {titleSaveStatus === "saved" && "Saved"}
-        {titleSaveStatus === "error" && "Failed to save title"}
-      </p>
-
-      {/* drag-and-drop area for reordering blocks */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
-      >
-        {/* sortable list context tells dnd-kit which blocks can be reordered */}
-        <SortableContext
-          items={blocks.map((block) => block._id)}
-          strategy={verticalListSortingStrategy}
-        >
-          {/* render all blocks in current order */}
-          <div className="block-list">
-            {blocks.map((block) => (
-              <Block
-                key={block._id}
-                block={block}
-                canEdit={canEdit} // only EDITOR and OWNER can edit blocks
-                remoteCursors={remoteCursors.filter(
-                  (item) => item.cursor.blockId === block._id,
-                )}
-                onUpdate={updateBlock}
-                onCopy={copyBlock}
-                onDelete={deleteBlock}
-                onComment={(blockId) => {
-                  setSelectedCommentBlockId(blockId);
-                  setIsCommentsOpen(true);
-                }}
-                onTypingStarted={() => {
-                  socket.emit("typing-started", { pageId, user });
-                }}
-                onTypingStopped={() => {
-                  socket.emit("typing-stopped", { pageId, user });
-                }}
-                onCursorMoved={(cursor) => {
-                  socket.emit("cursor-moved", {
-                    pageId,
-                    user,
-                    cursor,
-                  });
-                }}
-              />
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
-
-      {/* Only OWNER and EDITOR can see Add text block button */}
+      {/* Display title autosave state only to users who can edit */}
       {canEdit && (
-        <button className="add-block-button" onClick={createBlock}>
+        <p className="save-status">
+          {titleSaveStatus === "saving" && "Saving title..."}
+          {titleSaveStatus === "saved" && "Saved"}
+          {titleSaveStatus === "error" && "Failed to save title"}
+        </p>
+      )}
+
+      {/*
+       * BlockList owns drag-and-drop rendering
+       * Editor still owns block data and API/socket behavior
+       */}
+      <BlockList
+        blocks={blocks}
+        canEdit={canEdit}
+        remoteCursors={remoteCursors}
+        onDragEnd={handleDragEnd}
+        onUpdateBlock={updateBlock}
+        onDeleteBlock={deleteBlock}
+        onCopyBlock={copyBlock}
+        onComment={openBlockComments}
+        onTypingStarted={emitTypingStarted}
+        onTypingStopped={emitTypingStopped}
+        onCursorMoved={emitCursorMoved}
+      />
+
+      {/* Only owners and editors may create new blocks */}
+      {canEdit && (
+        <button
+          type="button"
+          className="add-block-button"
+          onClick={createBlock}
+        >
           + Add text block
         </button>
       )}
