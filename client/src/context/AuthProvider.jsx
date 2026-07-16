@@ -1,7 +1,7 @@
 // import built-in React functions: React Hooks
 import { useEffect, useState } from "react";
 import api from "../api/axios";
-import { AuthContext } from "./context/AuthContext";
+import { AuthContext } from "./AuthContext";
 
 /**
  * Auth Provider = React component
@@ -52,7 +52,7 @@ export const AuthProvider = ({ children }) => {
     return response.data;
   };
 
-  const logout = async () => {
+  const logout = () => {
     // remove JWT token from browser local storage
     localStorage.removeItem("token");
 
@@ -60,32 +60,34 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
-  const fetchMe = async () => {
-    try {
-      // call Express endpoint GET /api/auth/me
-      // server returns response = { token, user }
-      const response = await api.get("/auth/me");
-
-      // set user so React knows who user is
-      setUser(response.data.user);
-    } catch (error) {
-      console.error(error);
-
-      // remove JWT token from browser local storage
-      localStorage.removeItem("token");
-
-      // clear user from React
-      setUser(null);
-    } finally {
-      // we finished checking, stop showing loading spinner
-      setLoading(false);
-    }
-  };
-
   // useEffect() = run the following code (fetchMe()) whenever the component loads or when specified dependencies change
   useEffect(() => {
+    // if token does not exist
+    const token = localStorage.getItem("token");
+    if (!token) {
+      return;
+    }
+
     const loadUser = async () => {
-      await fetchMe();
+      try {
+        // call Express endpoint GET /api/auth/me
+        // server returns response = { token, user }
+        const response = await api.get("/auth/me");
+
+        // set user so React knows who user is
+        setUser(response.data.user);
+      } catch (error) {
+        console.error(error);
+
+        // remove JWT token from browser local storage
+        localStorage.removeItem("token");
+
+        // clear user from React
+        setUser(null);
+      } finally {
+        // we finished checking, stop showing loading spinner
+        setLoading(false);
+      }
     };
 
     loadUser();

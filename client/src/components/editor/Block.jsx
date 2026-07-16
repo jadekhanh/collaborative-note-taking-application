@@ -2,31 +2,46 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useEffect, useRef, useState } from "react";
 import useAutosave from "../../hooks/useAutosave";
+import BlockToolbar from "./BlockToolbar";
 
 /**
  * Block component
  * @param block - block data from MongoDB
- * @param remoteCursors - cursors of other users inside this block
+ * @param remoteCursors - cursors locations of other users inside a block
+ * @param inputRef - input element of a block
+ * @param numberedIndex - the number index of the block if this block is a numbered block (1. block, 2. block)
  * @param onUpdate - function from Editor to update a block
  * @param: onCopy - function from Editor to copy a block
  * @param onDelete - function from Editor to delete a block
- * @param onComment - function from Editor to open comments for this block
+ * @param onCreateAfter - function from Editor to create a block after a block
+ * @param onDeleteEmpty - function from Editor to delete empty block
+ * @param onUpdateIndent - function from Editor to update indentation of a block
+ * @param onComment - function from Editor to open comments for a block
  * @param onTypingStarted - function from Editor to show typing indicator
  * @param onTypingStopped - function from Editor to stop typing indicator
  * @param onCursorMoved - function from Editor to broadcast cursor position
+ * @param onUploadFile - function from Editor to upload a file
  * @param: canEdit - boolean if user can edit block (VIEWER cannot)
+ * @param: commentCount = 0 = number of comments this block has
  */
 const Block = ({
   block,
   remoteCursors = [],
+  inputRef,
+  numberedIndex,
   onUpdate,
   onCopy,
   onDelete,
+  onCreateAfter,
+  onDeleteEmpty,
+  onUpdateIndent,
   onComment,
   onTypingStarted,
   onTypingStopped,
   onCursorMoved,
+  onUploadFile,
   canEdit = true,
+  commentCount = 0,
 }) => {
   /**
    * Calls useSortable() hook that returns a draggable large object
@@ -62,6 +77,8 @@ const Block = ({
   const typingTimeoutRef = useRef(null);
   // get block text; if not exists, use ""
   const text = localContent?.text || "";
+  // React state that stores indentation level of current block
+  const indentLevel = localContent?.indentLevel || 0;
 
   /**
    * Save current block
@@ -168,16 +185,6 @@ const Block = ({
   };
 
   /**
-   * Cursor events
-   */
-  const sharedCursorProps = {
-    onKeyUp: handleCursorChange, // user types a key
-    onClick: handleCursorChange, // user clicks somewhere
-    onSelect: handleCursorChange, // user highlights a text
-    onFocus: handleCursorChange, // input receives keyboard focus
-  };
-
-  /**
    * Handle when user types /heading, /paragraph, convert the block to that type
    */
   const handleSlashCommand = (newText) => {
@@ -186,10 +193,13 @@ const Block = ({
       "/heading": "heading",
       "/subheading": "subheading",
       "/bullet": "bullet",
+      "/numbered": "numbered",
       "/checklist": "checklist",
       "/code": "code",
       "/quote": "quote",
       "/paragraph": "paragraph",
+      "/image": "image",
+      "/file": "file",
     };
 
     // if newText.trim() = block type, set block type and content
@@ -207,6 +217,124 @@ const Block = ({
     handleTypingIndicator(newText);
   };
 
+  /**
+   * Handle keyboard shortcuts while editing a block
+   *
+   * Enter: create a new block below current block
+   * Backspace: delete the current block if it's empty
+   * Tab: increases indentation level of current block
+   * Shift + Tab: decreases indentation level of current block
+   */
+  const handleKeyboardShortcuts = async (event) => {
+    // if this user is viewer, do nothing
+    if (!canEdit) {
+      return;
+    }
+
+    // if event key is Enter (not combined with Shift), create a new block directly below current block
+    if (event.key === "Enter" && !event.shiftKey) {
+      // prevent browser from inserting new line inside current block
+      event.preventDefault();
+
+      // create a new block below current block
+      await onCreateAfter(block._id);
+
+      // return to stop checking other shortcuts
+      return;
+    }
+
+    // if event key is Backspace and current block is empty, delete it
+    if (event.key === "Backspace" && text.length === 0) {
+      event.preventDefault();
+
+      // delete empty block
+      await onDeleteEmpty(block._id);
+
+      // return to stop checking other shortcuts
+      return;
+    }
+
+    // if event key is Tab, increases indentation level of current block
+    if (event.key === "Tab" && !event.shiftKey) {
+      event.preventDefault();
+
+      // update the block content's indent level
+      setLocalContent({
+        ...localContent,
+
+        // increase indent level of the block
+        indentLevel: indentLevel + 1,
+      });
+
+      // save new indent level to backend
+      await onUpdateIndent(block._id, indentLevel + 1);
+
+      return;
+    }
+
+    // if event key is Tab + Shift, decrease indentation level of current block
+    if (event.key === "Tab" && event.shiftKey) {
+      event.preventDefault();
+
+      // update the block content's indent level
+      setLocalContent({
+        ...localContent,
+
+        // decrease indent level of the block
+        indentLevel: Math.max(indentLevel - 1, 0), // cannot go below 0
+      });
+
+      // save new indent level to backend
+      await onUpdateIndent(block._id, indentLevel - 1);
+
+      return;
+    }
+  };
+
+  /**
+   * Handle when user uploads a file
+   */
+  const handleBlockFileUpload = async (event) => {
+    // get file from event
+    const file = event.target.files?.[0];
+
+    // if file does not exist or user is viewer, do nothing
+    if (!file || !canEdit) {
+      return;
+    }
+
+    // upload file to backend
+    const uploadedFile = await onUploadFile(block._id, file);
+
+    // if fails, do nothing
+    if (!uploadedFile) {
+      return;
+    }
+
+    // update React to display uploaded file
+    setLocalContent({
+      // copy previous content
+      ...localContent,
+      // add uploaded file
+      url: uploadedFile.fileUrl,
+      fileName: uploadedFile.fileName,
+      fileSize: uploadedFile.fileSize,
+      fileType: uploadedFile.fileType,
+    });
+  };
+
+  /**
+   * Handle user input events
+   */
+  const sharedInputProps = {
+    ref: inputRef, // direct pointer to the actual HTML element so that BlockList have access to Block's <textarea> so BlockList can call .focus() as we move keyboard focus when creating/deleting blocks
+    onKeyDown: handleKeyboardShortcuts, // user types a keyboard shortcuts (Enter, Tab, Shift + Tab, Backspace)
+    onKeyUp: handleCursorChange, // user types a key
+    onClick: handleCursorChange, // user clicks somewhere
+    onSelect: handleCursorChange, // user highlights a text
+    onFocus: handleCursorChange, // input receives keyboard focus
+  };
+
   const renderBlockInput = () => {
     switch (localType) {
       case "heading":
@@ -217,7 +345,7 @@ const Block = ({
             disabled={!canEdit} // disable input for VIEWERS
             onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
             placeholder="Heading"
-            {...sharedCursorProps} // attach all cursor-tracking events
+            {...sharedInputProps} // handle all user keyboard/cursor events
           />
         );
 
@@ -229,7 +357,19 @@ const Block = ({
             disabled={!canEdit} // disable input for VIEWERS
             onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
             placeholder="Subheading"
-            {...sharedCursorProps} // attach all cursor-tracking events
+            {...sharedInputProps} // handle all user keyboard/cursor events
+          />
+        );
+
+      case "paragraph":
+        return (
+          <textarea
+            className="block-input"
+            value={text}
+            disabled={!canEdit}
+            onChange={(event) => handleSlashCommand(event.target.value)}
+            placeholder="Write something..."
+            {...sharedInputProps}
           />
         );
 
@@ -243,7 +383,7 @@ const Block = ({
               disabled={!canEdit} // disable input for VIEWERS
               onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
               placeholder="Bullet"
-              {...sharedCursorProps} // attach all cursor-tracking events
+              {...sharedInputProps} // handle all user keyboard/cursor events
             />
           </div>
         );
@@ -269,7 +409,7 @@ const Block = ({
               disabled={!canEdit} // disable input for VIEWERS
               onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
               placeholder="Checklist item"
-              {...sharedCursorProps} // attach all cursor-tracking events
+              {...sharedInputProps} // handle all user keyboard/cursor events
             />
           </div>
         );
@@ -282,7 +422,7 @@ const Block = ({
             disabled={!canEdit} // disable input for VIEWERS
             onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
             placeholder="Code"
-            {...sharedCursorProps}
+            {...sharedInputProps} // handle all user keyboard/cursor events
           />
         );
 
@@ -294,19 +434,101 @@ const Block = ({
             disabled={!canEdit} // disable input for VIEWERS
             onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
             placeholder="Quote"
-            {...sharedCursorProps} // attach all cursor-tracking events
+            {...sharedInputProps} // handle all user keyboard/cursor events
           />
         );
 
+      case "image":
+        return (
+          <div className="image-block">
+            {/* check if this block has an uploaded image url */}
+            {localContent?.url ? (
+              <>
+                {/* display the uploaded image */}
+                <img
+                  src={localContent.url} // image url
+                  alt={
+                    localContent.alt ||
+                    localContent.fileName ||
+                    "Uploaded image"
+                  }
+                />
+
+                {canEdit && (
+                  <input
+                    type="text" // text input
+                    value={localContent.alt || ""} // image description
+                    onChange={(event) =>
+                      // update text whenever user types
+                      setLocalContent({
+                        ...localContent, // keep other fields: url, filename, etc.
+                        alt: event.target.value, // replace only text
+                      })
+                    }
+                    placeholder="Image description" // hint text
+                  />
+                )}
+              </>
+            ) : (
+              <p>No image uploaded</p> // if no image exists, display this
+            )}
+
+            {canEdit && (
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleBlockFileUpload}
+              />
+            )}
+          </div>
+        );
+
+      case "file":
+        return (
+          <div className="file-block">
+            {localContent?.url ? ( // check if this block contains file url
+              <a
+                href={localContent.url} // file url
+                target="_blank" // open the file in new browser tab
+                rel="noreferrer"
+                download // tell browser this should be downloaded instead of navigated to
+              >
+                {/* display clip icon + filename */}
+                📎 {localContent.fileName || "Download file"}
+              </a>
+            ) : (
+              <p>No file uploaded</p> // if no file exists
+            )}
+            {canEdit && <input type="file" onChange={handleBlockFileUpload} />}
+          </div>
+        );
+
+      case "numbered":
+        return (
+          <div className="numbered-row">
+            <span className="numbered-marker">{numberedIndex}.</span>
+
+            <input
+              className="block-input"
+              value={text}
+              disabled={!canEdit}
+              onChange={(event) => handleSlashCommand(event.target.value)}
+              placeholder="Numbered item"
+              {...sharedInputProps}
+            />
+          </div>
+        );
+
+      // prevents mispelled block type from making the entire block disappear
       default:
         return (
           <textarea
             className="block-input"
             value={text}
-            disabled={!canEdit} // disable input for VIEWERS
-            onChange={(event) => handleSlashCommand(event.target.value)} // when user types something, run handleSlashCommand()
+            disabled={!canEdit}
+            onChange={(event) => handleSlashCommand(event.target.value)}
             placeholder="Write something..."
-            {...sharedCursorProps}
+            {...sharedInputProps}
           />
         );
     }
@@ -314,7 +536,14 @@ const Block = ({
 
   // return UI
   return (
-    <div ref={setNodeRef} style={style} className="block">
+    <div
+      ref={setNodeRef}
+      style={{
+        ...style,
+        marginLeft: `${indentLevel * 24}px`, // add indentation to outer block
+      }}
+      className="block"
+    >
       {/* display other users' cursor positions inside this block */}
       {remoteCursors.length > 0 && (
         <div className="inline-remote-cursors">
@@ -328,47 +557,50 @@ const Block = ({
       )}
 
       <div className="block-controls">
-        {/* Only OWNER and EDITOR can see drag handle */}
+        {/* Only editors and owners may drag blocks */}
         {canEdit && (
           <button
             className="drag-handle"
             type="button"
             {...attributes}
             {...listeners}
+            aria-label="Move block"
           >
             ⋮⋮
           </button>
         )}
 
-        <select
-          value={localType}
-          disabled={!canEdit}
-          onChange={(event) => updateType(event.target.value)}
-        >
-          <option value="paragraph">Paragraph</option>
-          <option value="heading">Heading</option>
-          <option value="subheading">Subheading</option>
-          <option value="bullet">Bullet</option>
-          <option value="checklist">Checklist</option>
-          <option value="code">Code</option>
-          <option value="quote">Quote</option>
-        </select>
+        {/* Block-level menu for type, comments, copy, and delete */}
+        <BlockToolbar
+          blockId={block._id}
+          blockType={localType}
+          canEdit={canEdit}
+          onTypeChange={updateType}
+          onComment={onComment}
+          onCopy={onCopy}
+          onDelete={onDelete}
+        />
 
-        <button onClick={() => onComment(block._id)}>Comment</button>
-
-        {/* Only EDITOR and OWNER can see these buttons */}
-        {canEdit && (
-          <>
-            <button onClick={() => onCopy(block._id)}>Copy</button>
-            <button onClick={() => onDelete(block._id)}>Delete</button>
-          </>
+        {/* Block comment badge */}
+        {commentCount > 0 && (
+          <button
+            type="button"
+            className="block-comment-badge"
+            onClick={() => onComment(block._id)}
+            aria-label={`${commentCount} unresolved comments`} // display number of unresolved comments
+          >
+            💬 {commentCount}
+          </button>
         )}
 
-        <span className="block-save-status">
-          {blockSaveStatus === "saving" && "Saving..."}
-          {blockSaveStatus === "saved" && "Saved"}
-          {blockSaveStatus === "error" && "Save failed"}
-        </span>
+        {/* Only editors and owners need to see autosave state */}
+        {canEdit && (
+          <span className="block-save-status">
+            {blockSaveStatus === "saving" && "Saving..."}
+            {blockSaveStatus === "saved" && "Saved"}
+            {blockSaveStatus === "error" && "Save failed"}
+          </span>
+        )}
       </div>
 
       {renderBlockInput()}

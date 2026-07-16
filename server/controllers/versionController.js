@@ -1,11 +1,11 @@
-const PageVersion = require("../models/Version");
+const Version = require("../models/Version");
 const Page = require("../models/Page");
 const Block = require("../models/Block");
 
 /**
  * Create page version
  */
-const createPageVersion = async (req, res) => {
+const createVersion = async (req, res) => {
   try {
     // extract pageId from req params
     const { pageId } = req.params;
@@ -17,15 +17,20 @@ const createPageVersion = async (req, res) => {
     }
 
     // get page blocks
-    const blocks = await Block.find({ page: pageId, createdBy: req.user._id });
+    const blocks = await Block.find({
+      page: pageId,
+    }).sort({ order: 1 });
 
     // create page version
-    const version = await PageVersion.create({
+    const version = await Version.create({
       page: pageId,
       createdBy: req.user._id,
       snapshot: {
         title: page.title,
+        icon: page.icon,
+        coverImageUrl: page.coverImageUrl,
         blocks: blocks.map((block) => ({
+          blockId: block._id,
           type: block.type,
           content: block.content,
           order: block.order,
@@ -33,6 +38,7 @@ const createPageVersion = async (req, res) => {
           updatedBy: block.updatedBy,
         })),
       },
+      source: req.body.source === "AUTO" ? "AUTO" : "MANUAL",
     });
 
     return res
@@ -49,16 +55,15 @@ const createPageVersion = async (req, res) => {
 /**
  * Get page versions by page
  */
-const getPageVersions = async (req, res) => {
+const getVersions = async (req, res) => {
   try {
     // extract pageId from req params
     const { pageId } = req.params;
 
     // get page version sorted by descending order
     // replace createdBy with username and email for readability
-    const versions = await PageVersion.find({
+    const versions = await Version.find({
       page: pageId,
-      createdBy: req.user._id,
     })
       .populate("createdBy", "username email")
       .sort({ createdAt: -1 });
@@ -77,16 +82,10 @@ const getPageVersions = async (req, res) => {
 /**
  * Restore page version
  */
-const restorePageVersion = async (req, res) => {
+const restoreVersion = async (req, res) => {
   try {
-    // extract pageId, versionId from req params
-    const { pageId, versionId } = req.params;
-
-    // get page
-    const page = await Page.find({ page: pageId, user: req.user._id });
-    if (!page) {
-      return res.status(404).json({ message: "Page not found" });
-    }
+    // extract versionId from req params
+    const { versionId } = req.params;
 
     // get version
     const version = await PageVersion.findById(versionId);
@@ -94,8 +93,16 @@ const restorePageVersion = async (req, res) => {
       return res.status(404).json({ message: "Page version not found" });
     }
 
-    // set page title as version title
-    page.title = version.title;
+    // get page
+    const page = await Page.findById(version.page);
+    if (!page) {
+      return res.status(404).json({ message: "Page not found" });
+    }
+
+    // set page fields
+    page.title = version.snapshot.title;
+    page.icon = version.snapshot.icon || "";
+    page.coverImageUrl = version.snapshot.coverImageUrl || "";
     await page.save();
 
     // delete page blocks
@@ -113,13 +120,11 @@ const restorePageVersion = async (req, res) => {
       })),
     );
 
-    return res
-      .status(200)
-      .json(
-        { message: "Successfully restore page version" },
-        page,
-        restoredBlocks,
-      );
+    return res.status(200).json({
+      message: "Successfully restored page version",
+      page,
+      blocks: restoredBlocks,
+    });
   } catch (error) {
     // 500 = internal error
     return res.status(500).json({
@@ -129,4 +134,4 @@ const restorePageVersion = async (req, res) => {
   }
 };
 
-module.exports = { createPageVersion, getPageVersions, restorePageVersion };
+module.exports = { createVersion, getVersions, restoreVersion };

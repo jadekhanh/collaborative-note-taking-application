@@ -42,7 +42,7 @@ const Register = () => {
   const [error, setError] = useState("");
 
   // handle input change by user that runs whenever user types
-  // suppose user types email, then event.target = email textbox, event.target.name = email, event.target.value = detectivemochi@gmail.com
+  // suppose user types email, then event.target = <input>, event.target.name = email, event.target.value = detectivemochi@gmail.com
   const handleInputChange = (event) => {
     setTypedData({
       ...typedData,
@@ -60,7 +60,11 @@ const Register = () => {
 
     try {
       // calls register() from AuthContext
-      await register(typedData);
+      await register({
+        email: typedData.email.trim(),
+        username: typedData.username.trim(),
+        password: typedData.password,
+      });
 
       // navigate to Dashboard once login succeeds
       navigate("/dashboard");
@@ -78,32 +82,38 @@ const Register = () => {
       {/* create HTML form, when user submits, call handleSubmit() */}
       <form className="auth-card" onSubmit={handleSubmit}>
         {/* heading 1: page title */}
-        <h1>Login</h1>
+        <h1>Register</h1>
         {/* display error if exists */}
         {error && <p className="error">{error}</p>}
-        {/* create Email textbox */}
+        {/* create Email input box */}
         <input
           name="email" // identifier label
           type="email" // what kind of data it should accept
-          placeHolder="Email" // faint hint text displayed inside the box before user types in
+          placeholder="Email" // faint hint text displayed inside the box before user types in
           value={typedData.email}
           onChange={handleInputChange} // every keystroke calls handleInputChange(), updates state, React re-renders, textbox updates
+          autoComplete="email"
+          required
         />
-        {/* create Username textbox */}
+        {/* create Username input box */}
         <input
-          name="username" // identifier label
-          type="username" // what kind of data it should accept
-          placeHolder="Username" // faint hint text displayed inside the box before user types in
+          name="username"
+          type="text"
+          placeholder="Username"
           value={typedData.username}
-          onChange={handleInputChange} // every keystroke calls handleInputChange(), updates state, React re-renders, textbox updates
+          onChange={handleInputChange}
+          autoComplete="username"
+          required
         />
-        {/* create Password textbox */}
+        {/* create Password input box */}
         <input
-          name="password" // identifier label
-          type="password" // what kind of data it accepts
-          placeHolder="Password" // faint hint text displayed inside the box before user types in
+          name="password"
+          type="password"
+          placeholder="Password"
           value={typedData.password}
-          onChange={handleInputChange} // every keystroke calls handleInputChange(), updates state, React re-renders, textbox updates
+          onChange={handleInputChange}
+          autoComplete="new-password"
+          required
         />
         {/* create Register button */}
         <button type="submit">Register</button>

@@ -95,6 +95,12 @@ const socketHandler = (io) => {
       }
     });
 
+    // listen for frontend event called "page-updated"
+    socket.on("page-updated", ({ pageId, page }) => {
+      // socket sends everyone in pageId the updated page
+      socket.to(pageId).emit("receive-page-updated", { page });
+    });
+
     // listen for frontend event called "block-created" saying a new block is created
     socket.on("block-created", ({ pageId, block }) => {
       // socket sends the new block to everyone in the page
@@ -115,13 +121,40 @@ const socketHandler = (io) => {
 
     // listen for frontend event called "blocks-reordered" saying blocks are reordered
     socket.on("blocks-reordered", ({ pageId, blocks }) => {
-      // socket tells everyone in the room to reorder blocks
+      // socket sends the full list of blocks to everyone in pageId
       socket.to(pageId).emit("receive-blocks-reordered", { blocks });
+    });
+
+    // listen for frontend event called "comments-updated" saying comments are updated
+    socket.on("comments-updated", ({ pageId, threads }) => {
+      // socket sends the full list of updated threads to everyone in pageId
+      socket.to(pageId).emit("receive-comments-updated", { threads });
+    });
+
+    // listen for frontend event called "attachments-updated" saying attachments are updated
+    socket.on("attachments-updated", ({ pageId, attachments }) => {
+      // socket sends the full list of updated attachments to everyone in pageId
+      socket.to(pageId).emit("receive-attachments-updated", { attachments });
+    });
+
+    // listen for frontend event called "permissions-updated" saying permissions are updated
+    socket.on("attachments-updated", ({ pageId, permissions }) => {
+      // socket sends the full list of updated permissions to everyone in pageId
+      socket.to(pageId).emit("receive-permissions-updated", { permissions });
+    });
+
+    // listen for frontend event called "user-page-access-updated" saying a user page acccess is updated
+    socket.on("user-page-access-updated", ({ pageId, userId, accessRole }) => {
+      // socket sends everyone in the page the updated page access for this user
+      socket.to(pageId).emit("receive-user-page-access-updated", {
+        userId,
+        accessRole,
+      });
     });
 
     // listen for frontend event called "cursor-moved" listening for cursor movement
     socket.on("cursor-moved", ({ pageId, user, cursor }) => {
-      // socket tells everyone where the user's cursor moved
+      // socket sends cursor locations to everyone in pageId
       socket.to(pageId).emit("receive-cursor-moved", {
         user,
         // cursor = { x, y } = location of the cursor

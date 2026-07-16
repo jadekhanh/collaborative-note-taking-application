@@ -8,12 +8,14 @@ const UserProfileDropdown = ({ user, onLogout }) => {
     <div className="user-profile-dropdown">
       {/* Display username and email */}
       <div>
-        <strong>{user.username}</strong>
-        <p>{user.email}</p>
+        <strong>{user?.username || "User"}</strong>
+        <p>{user?.email || ""}</p>
       </div>
 
       {/* Logout button */}
-      <button onClick={onLogout}>Logout</button>
+      <button type="button" onClick={onLogout}>
+        Logout
+      </button>
     </div>
   );
 };

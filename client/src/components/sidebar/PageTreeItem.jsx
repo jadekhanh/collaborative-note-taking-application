@@ -17,8 +17,8 @@ import { useState } from "react";
  * - page: the page being displayed
  * - depth: how deeply nested the page is: 0 = top-level page, 1 = child page, 2 = grandchild page
  * - selectedPageId: ID of page currently opened in editor
- * - onSelectPage = function from Editor that opens a page
- * - onCreatePage = function from Workspace to create a child page
+ * - onSelectPage: function from Workspace that opens a page in Editor
+ * - onCreatePage: function from Workspace to create a child page
  */
 const PageTreeItem = ({
   page,
@@ -26,6 +26,7 @@ const PageTreeItem = ({
   selectedPageId,
   onSelectPage,
   onCreatePage,
+  canEdit,
 }) => {
   // a state that rememebers if this page's children are visible/expanded
   const [isExpanded, setIsExpanded] = useState(true); // child pages are shown by default
@@ -39,7 +40,7 @@ const PageTreeItem = ({
     // since the arrow button sits inside the clickable row onClick={() => onSelectPage(pageId)}
     // click the arrow would expand/collapse the children + open the page
     // we only want to expand or collapse
-    event.stopPropagration();
+    event.stopPropagation();
 
     // if this tree item has children pages
     // a page without children pages does not need to expand or collapse
@@ -91,19 +92,21 @@ const PageTreeItem = ({
 
         <span className="page-tree-title">{page.title || "Untitled"}</span>
 
-        {/* Create a child page under this page */}
-        <button
-          type="button"
-          className="page-tree-add"
-          onClick={(event) => {
-            event.stopPropagation(); // prevents the click from also opening the current page
-            onCreatePage(page._id); // param = parentPage = current page is parent page
-            setIsExpanded(true); // make sure the parent page is expanded after creating the child
-          }}
-          aria-label={`Create child page under ${page.title}`}
-        >
-          +
-        </button>
+        {/* Create a child page under this page, only visible to workspace editor or owner */}
+        {canEdit && (
+          <button
+            type="button"
+            className="page-tree-add"
+            onClick={(event) => {
+              event.stopPropagation(); // prevents the click from also opening the current page
+              onCreatePage(page._id); // param = parentPage = current page is parent page
+              setIsExpanded(true); // make sure the parent page is expanded after creating the child
+            }}
+            aria-label={`Create child page under ${page.title}`}
+          >
+            +
+          </button>
+        )}
       </div>
 
       {/* Recursively render child pages while expanded */}
@@ -119,6 +122,7 @@ const PageTreeItem = ({
                 selectedPageId={selectedPageId}
                 onSelectPage={onSelectPage}
                 onCreatePage={onCreatePage}
+                canEdit={canEdit}
               />
             ))}
           </div>

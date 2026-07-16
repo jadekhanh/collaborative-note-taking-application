@@ -12,7 +12,7 @@ import { useAuth } from "../../context/AuthContext";
  * @params
  * - workspaceId = workspace that the modal locates in
  * - isOpen = boolean to check if the modal is opened by user
- * - onClose = function from Workspace to close the modal
+ * - onClose = function from Dashboard to close the modal
  * - onWorkspaceUpdated = function from Workspace to update the workspace
  */
 const WorkspaceMembersModal = ({
@@ -33,7 +33,11 @@ const WorkspaceMembersModal = ({
   const [error, setError] = useState("");
 
   // check if current user is the owner of the workspace
-  const isOwner = workspace.owner === user.id;
+  const currentUserId = user?._id || user?.id;
+  const workspaceOwnerId = workspace?.owner?._id || workspace?.owner;
+  const isOwner =
+    Boolean(currentUserId && workspaceOwnerId) &&
+    currentUserId.toString() === workspaceOwnerId.toString();
 
   /**
    * Load the latest workspace and members list whenever the modal opens
@@ -45,13 +49,17 @@ const WorkspaceMembersModal = ({
 
     const loadWorkspace = async () => {
       try {
+        setError("");
+
         // call GET api/workspaces/:workspaceId
         const res = await api.get(`/workspaces/${workspaceId}`);
 
         // set React state for workspace
         setWorkspace(res.data.workspace);
       } catch (error) {
-        setError(error.res?.data.message || "Failed to load workspace members");
+        setError(
+          error.response?.data?.message || "Failed to load workspace members",
+        );
       }
     };
     loadWorkspace();
@@ -64,15 +72,22 @@ const WorkspaceMembersModal = ({
     // prevent browser to refresh browser after hit submit event
     event.preventDefault();
 
+    // if this user is not workspace owner, do nothing
+    if (!isOwner) {
+      return;
+    }
+
     // if email input is empty, do nothing
     if (!email.trim()) {
       return;
     }
 
     try {
+      setError("");
+
       // call POST api/workspaces/:workspaceId/members to add member
       const res = await api.post(`/workspaces/${workspaceId}/members`, {
-        email,
+        email: email.trim(),
         role,
       });
 
@@ -88,7 +103,9 @@ const WorkspaceMembersModal = ({
       setEmail("");
       setRole("VIEWER");
     } catch (error) {
-      setError(error.res?.data.message || "Failed to add member to workspace");
+      setError(
+        error.response?.data?.message || "Failed to add member to workspace",
+      );
     }
   };
 
@@ -96,7 +113,14 @@ const WorkspaceMembersModal = ({
    * Update workspace member role
    */
   const updateMemberRole = async (memberId, newRole) => {
+    // if this user is not workspace owner, do nothing
+    if (!isOwner) {
+      return;
+    }
+
     try {
+      setError("");
+
       // call PATCH api/workspaces/:workspaceId/members/:memberId/role
       const res = await api.patch(
         `/workspaces/${workspaceId}/members/${memberId}/role`,
@@ -110,11 +134,12 @@ const WorkspaceMembersModal = ({
 
       // call Dashboard that workspace member changes
       if (onWorkspaceUpdated) {
-        onWorkspaceUpdated();
+        onWorkspaceUpdated(res.data.workspace);
       }
     } catch (error) {
       setError(
-        error.res?.data.message || "Failed to update workspace member role",
+        error.response?.data?.message ||
+          "Failed to update workspace member role",
       );
     }
   };
@@ -123,11 +148,18 @@ const WorkspaceMembersModal = ({
    * Remove workspace member
    */
   const removeMember = async (memberId) => {
+    // if this user is not workspace owner, do nothing
+    if (!isOwner) {
+      return;
+    }
+
     // confirm if user wants to remove member
     if (!window.confirm("Oooooohhhh remove this member from workspace?")) {
       return;
     }
     try {
+      setError("");
+
       // call DELETE /api/workspaces/:workspaceId/members/:memberId
       const res = await api.delete(
         `/workspaces/${workspaceId}/members/${memberId}`,
@@ -138,11 +170,12 @@ const WorkspaceMembersModal = ({
 
       // call Dashboard that workspace member changes
       if (onWorkspaceUpdated) {
-        onWorkspaceUpdated();
+        onWorkspaceUpdated(res.data.workspace);
       }
     } catch (error) {
       setError(
-        error.res?.data.message || "Failed to remove member from workspace",
+        error.response?.data?.message ||
+          "Failed to remove member from workspace",
       );
     }
   };
@@ -198,7 +231,7 @@ const WorkspaceMembersModal = ({
               (workspace.owner?._id || workspace.owner)?.toString();
 
             return (
-              <div key={memberId} className="workspace-member-card">
+              <div key={memberId?.toString()} className="workspace-member-card">
                 <div>
                   <strong>{member.user?.username || "Unknown user"}</strong>
 

@@ -26,9 +26,24 @@ const pageVersionSchema = new mongoose.Schema(
         type: String,
         required: true,
       },
+      // cover image url
+      coverImageUrl: {
+        type: String,
+        default: "",
+      },
+      // page icon
+      icon: {
+        type: String,
+        default: "",
+      },
       // array list of text blocks
       blocks: [
         {
+          blockId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Block",
+            required: true,
+          },
           type: {
             type: String,
           },
@@ -51,9 +66,15 @@ const pageVersionSchema = new mongoose.Schema(
         },
       ],
     },
+    // source of the version
+    source: {
+      type: String,
+      enum: ["MANUAL", "AUTO"],
+      default: "MANUAL",
+    },
   },
   // automatically generates createdAt and updatedAt
-  { timestamp: true },
+  { timestamps: true },
 );
 
 // .index() = speeds up queries that find page version based on page in descending order

@@ -91,8 +91,7 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        // Login route: show Login through PublicRoute: if user is logged out,
-        show Login; if user is already logged in, show Dashboard
+        {/* Login route: show Login through PublicRoute: if user is logged out, show Login; if user is already logged in, show Dashboard */}
         <Route
           path="/login"
           element={
@@ -101,7 +100,7 @@ function App() {
             </PublicRoute>
           }
         />
-        // Register route: show Register through PublicRoute
+        {/* Register route: show Register through PublicRoute */}
         <Route
           path="/register"
           element={
@@ -110,8 +109,7 @@ function App() {
             </PublicRoute>
           }
         />
-        // Dashboard route: show Dashboard through ProtectedRoute: if user is
-        already logged in, show Dashboard; if logged out, show Login
+        {/* Dashboard route: show Dashboard through ProtectedRoute: if user is already logged in, show Dashboard; if logged out, show Login */}
         <Route
           path="/dashboard"
           element={
@@ -120,8 +118,7 @@ function App() {
             </ProtectedRoute>
           }
         />
-        // Workspace route: show Workspace through ProtectedRoute: if user is
-        already logged in, show Workspace; if logged out, show Login
+        {/* Workspace route: show Workspace through ProtectedRoute: if user is already logged in, show Workspace; if logged out, show Login */}
         <Route
           path="/workspaces/:workspaceId"
           element={
@@ -130,7 +127,7 @@ function App() {
             </ProtectedRoute>
           }
         />
-        // Other Routes: redirect to Dashboard
+        {/* Other Routes: redirect to Dashboard */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>

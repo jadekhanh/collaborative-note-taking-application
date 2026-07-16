@@ -41,7 +41,9 @@ const getMyWorkspaces = async (req, res) => {
       .populate("members.user", "username email");
 
     // 200 = success
-    return res.status(200).json(workspaces);
+    return res.status(200).json({
+      workspaces,
+    });
   } catch (error) {
     // 500 = internal error
     return res.status(500).json({
@@ -63,13 +65,13 @@ const getWorkspaceById = async (req, res) => {
 
     // if workspace doesn't exist
     if (!workspace) {
-      return res.status(401).json({ message: "Workspace not found" });
+      return res.status(404).json({ message: "Workspace not found" });
     }
 
     // check if this user is member of this workspace
     let isMember = false;
     for (const member of workspace.members) {
-      if (member.user._id.toString == req.user._id.toString()) {
+      if (member.user._id.toString() == req.user._id.toString()) {
         isMember = true;
         break;
       }
@@ -98,11 +100,11 @@ const updateWorkspace = async (req, res) => {
     // get workspace
     const workspace = await Workspace.findById(req.params.workspaceId);
     if (!workspace) {
-      return res.status(401).json({ message: "Workspace not found" });
+      return res.status(404).json({ message: "Workspace not found" });
     }
 
     // check if this user is the owner of the workspace
-    if (workspace.owner.toString() !== req.body.user._id.toString()) {
+    if (workspace.owner.toString() !== req.user._id.toString()) {
       // 403 = access denied
       return res
         .status(403)
@@ -134,11 +136,11 @@ const deleteWorkspace = async (req, res) => {
     // get workspace
     const workspace = await Workspace.findById(req.params.workspaceId);
     if (!workspace) {
-      return res.status(401).json({ message: "Workspace not found" });
+      return res.status(404).json({ message: "Workspace not found" });
     }
 
     // check if this user is the owner of the workspace
-    if (workspace.owner.toString() !== req.body.user._id.toString()) {
+    if (workspace.owner.toString() !== req.user._id.toString()) {
       // 403 = access denied
       return res
         .status(403)
@@ -163,6 +165,11 @@ const addWorkspaceMember = async (req, res) => {
   try {
     const { workspaceId } = req.params;
     const { email, role } = req.body;
+    if (role !== "VIEWER" && role !== "EDITOR") {
+      return res.status(400).json({
+        message: "Role must be VIEWER or EDITOR",
+      });
+    }
 
     // check if provided email is empty
     if (!email.trim()) {
@@ -172,7 +179,7 @@ const addWorkspaceMember = async (req, res) => {
     // get workspace
     const workspace = await Workspace.findById(workspaceId);
     if (!workspace) {
-      return res.status(401).json({ message: "Workspace not found" });
+      return res.status(404).json({ message: "Workspace not found" });
     }
 
     // check if this user is the owner of the workspace
@@ -205,13 +212,16 @@ const addWorkspaceMember = async (req, res) => {
 
     // push user into members list
     workspace.members.push({ user: invitedUser._id, role: role });
+    await workspace.save();
 
     // populate fields
+    await workspace.populate("owner", "username email");
     await workspace.populate("members.user", "username email");
 
-    return res
-      .status(200)
-      .json({ message: "Successfully added member to workspace" });
+    return res.status(200).json({
+      message: "Successfully added member to workspace",
+      workspace,
+    });
   } catch (error) {
     // 500 = internal error
     return res.status(500).json({
@@ -232,9 +242,14 @@ const updateWorkspaceMemberRole = async (req, res) => {
     const { workspaceId, memberId } = req.params;
     // extract role from req body
     const { role } = req.body;
+    if (role !== "VIEWER" && role !== "EDITOR") {
+      return res.status(400).json({
+        message: "Role must be VIEWER or EDITOR",
+      });
+    }
 
     // confirm role is either viewer or editor
-    if (role !== "VIEWER" || role !== "EDITOR") {
+    if (role !== "VIEWER" && role !== "EDITOR") {
       return res.status(400).json({ message: "Role must be EDITOR or VIEWER" });
     }
 
@@ -245,7 +260,7 @@ const updateWorkspaceMemberRole = async (req, res) => {
     }
 
     // check if this user is workspace owner
-    if (workspace.owner._id.toString() !== req.user._id.toString()) {
+    if (workspace.owner.toString() !== req.user._id.toString()) {
       return res
         .status(403)
         .json({ message: "Only workspace owner can update member role" });
@@ -299,7 +314,7 @@ const removeWorkspaceMember = async (req, res) => {
     }
 
     // check if this user is workspace owner
-    if (workspace.owner._id.toString() !== req.user._id.toString()) {
+    if (workspace.owner.toString() !== req.user._id.toString()) {
       return res
         .status(403)
         .json({ message: "Only workspace owner can remove member" });
@@ -325,7 +340,7 @@ const removeWorkspaceMember = async (req, res) => {
     const updatedMembers = [];
     for (const mem of workspace.members) {
       if (mem.user.toString() !== memberId.toString()) {
-        updateWorkspace.push(mem);
+        updatedMembers.push(mem);
       }
     }
     workspace.members = updatedMembers;

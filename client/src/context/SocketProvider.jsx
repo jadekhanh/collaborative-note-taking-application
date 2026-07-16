@@ -1,13 +1,13 @@
 import { useEffect } from "react";
-import socket from "../sockets/socket";
+import socket from "../socket/socket";
 import { useAuth } from "./AuthContext";
 import { SocketContext } from "./SocketContext";
 
 // create new provider SocketProvider that stores socket and makes the socket available in entire app
 // children = App
-export const SocketProvier = ({ children }) => {
+export const SocketProvider = ({ children }) => {
   // get current user
-  const user = useAuth();
+  const { user } = useAuth();
 
   // useEffect = run this code after whenever user is renderered
   useEffect(() => {

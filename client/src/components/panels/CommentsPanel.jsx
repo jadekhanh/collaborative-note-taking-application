@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import api from "../../api/axios";
+import { useAuth } from "../../context/AuthContext";
 
 /**
  * Comment panel UI
@@ -7,33 +8,48 @@ import api from "../../api/axios";
  * - pageId: current page
  * - blockId: current block
  * - isOpen: whether the panel is opened
- * - onClose = function to close the panel
+ * - onClose: function from Editor to close the panel
+ * - onThreadsChanged = function from Editor to update comment threads
+ * - onCommentsUpdated = function from Editor to broadcast updated threads via Socket.IO
  */
-const CommentPanel = ({ pageId, blockId, isOpen, onClose }) => {
-  // set state for threads
-  const [threads, setThreads] = useState([]);
+const CommentsPanel = ({
+  pageId,
+  blockId,
+  isOpen,
+  onClose,
+  threads = [],
+  onThreadsChanged,
+  onCommentsUpdated,
+}) => {
+  // get current user
+  const { user } = useAuth();
   // set state for new comment at the textbox
   const [newComment, setNewComment] = useState("");
   // set state for reply text by thread
   // each reply is attached to a thread's unique ID
   // {threadId1: "Hello", threadId2: "Hi", threadId3: "Bye"}
   const [replyTextByThread, setReplyTextByThread] = useState({});
+  // ID of the reply currently being edited
+  const [editingReplyId, setEditingReplyId] = useState(null);
+  // temporary text while editing a reply
+  const [editingReplyText, setEditingReplyText] = useState("");
 
-  // get all threads whenever pageId and isOpen are rendered
-  useEffect(() => {
-    // if the comment panel is opened and a page is opened, get all comment threads
-    if (isOpen && pageId) {
-      const getThreads = async () => {
-        // call GET /api/threads/pages/:pageId to get all threads inside page
-        const res = await api.get(`/comments/page/${pageId}/threads`);
-
-        // set threads
-        setThreads(res.data.threads);
-      };
-
-      getThreads();
+  /**
+   * Update comments panel state
+   * Notify Editor so block comment badges get updated
+   * Broadcast new thread list to collaborators
+   */
+  const updateThreads = (updatedThreads) => {
+    // notify Editor that comment threads changed so block comment badges get updated
+    if (onThreadsChanged) {
+      onThreadsChanged(updatedThreads);
     }
-  }, [isOpen, pageId]);
+
+    // broadcast the updated threads through Socket.IO
+    if (onCommentsUpdated) {
+      onCommentsUpdated(updatedThreads);
+    }
+  };
 
   /**
    * Create a comment thread
@@ -59,15 +75,16 @@ const CommentPanel = ({ pageId, blockId, isOpen, onClose }) => {
     }
 
     // call POST /api/comments/threads to create a comment thread
-    const res = await api.post("comments/threads", {
-      pageId: pageId,
+    const res = await api.post("/comments/threads", {
+      pageId,
       blockId: blockId || null,
-      content: newComment,
+      content: newComment.trim(),
     });
 
-    // set threads inside the page
+    // update threads inside the page
     // new thread appears first
-    setThreads([res.data.thread, ...threads]);
+    updateThreads([res.data.thread, ...threads]);
+
     // reset new comment text box
     setNewComment("");
   };
@@ -79,22 +96,14 @@ const CommentPanel = ({ pageId, blockId, isOpen, onClose }) => {
     // call DELETE /api/comments/threads/:threadId
     await api.delete(`/comments/threads/${threadId}`);
 
-    // update threads list state
-    setThreads((prevThreads) => {
-      // create new list of threads
-      const newThreads = [];
-
-      // loop over each thread
-      for (const thread of prevThreads) {
-        // if this is not the thread that just got deleted
-        if (thread._id !== threadId) {
-          // push it into the list
-          newThreads.push(thread);
-        }
+    // update threads list
+    const updatedThreads = [];
+    for (const thread of threads) {
+      if (thread._id !== threadId) {
+        updatedThreads.push(thread);
       }
-
-      return newThreads;
-    });
+    }
+    updateThreads(updatedThreads);
   };
 
   /**
@@ -104,25 +113,16 @@ const CommentPanel = ({ pageId, blockId, isOpen, onClose }) => {
     // call PATCH /api/comments/threads/:threadId/resolve to resolve thread
     const res = await api.patch(`/comments/threads/${threadId}/resolve`);
 
-    // update threads list state
-    setThreads((prevThreads) => {
-      // create new list of threads
-      const newThreads = [];
-
-      // loop over each thread
-      for (const thread of prevThreads) {
-        // if this is the thread that just got resolved
-        if (thread._id === threadId) {
-          // replace it with the updated thread returned by server
-          newThreads.push(res.data.thread);
-        } else {
-          // keep original thread
-          newThreads.push(thread);
-        }
+    // update threads list
+    const updatedThreads = [];
+    for (const thread of threads) {
+      if (thread._id !== threadId) {
+        updatedThreads.push(thread);
+      } else {
+        updatedThreads.push(res.data.thread);
       }
-
-      return newThreads;
-    });
+    }
+    updateThreads(updatedThreads);
   };
 
   /**
@@ -140,28 +140,19 @@ const CommentPanel = ({ pageId, blockId, isOpen, onClose }) => {
 
     // call POST /comments/threads/:threadId/replies to update that thread now containing the new reply
     const res = await api.post(`/comments/threads/${threadId}/replies`, {
-      content,
+      content: content.trim(),
     });
 
-    // update threads list state
-    setThreads((prevThreads) => {
-      // create new list of threads
-      const newThreads = [];
-
-      // loop over each thread
-      for (const thread of prevThreads) {
-        // if this is the thread that just get a new reply
-        if (thread._id === threadId) {
-          // replace it with the updated thread returned by server
-          newThreads.push(res.data.thread);
-        } else {
-          // keep original thread
-          newThreads.push(thread);
-        }
+    // update threads list
+    const updatedThreads = [];
+    for (const thread of threads) {
+      if (thread._id !== threadId) {
+        updatedThreads.push(thread);
+      } else {
+        updatedThreads.push(res.data.thread);
       }
-
-      return newThreads;
-    });
+    }
+    updateThreads(updatedThreads);
 
     // clear textbox for this thread
     // create a copy of the current reply text object
@@ -178,25 +169,104 @@ const CommentPanel = ({ pageId, blockId, isOpen, onClose }) => {
     setReplyTextByThread(newReplyText);
   };
 
-  // If blockId exists, show only threads attached to that block
-  // If blockId does not exist, show only page-level threads.
-  const visibleThreads = [];
-  if (blockId) {
-    // show only comments attached to that block
+  /**
+   * Enter reply-editing mode
+   */
+  const startEditingReply = (reply) => {
+    // set ID of the editing reply
+    setEditingReplyId(reply._id);
+    // set the editing reply text
+    setEditingReplyText(reply.content);
+  };
+
+  /**
+   * Cancel reply-editing mode
+   */
+  const cancelEditingReply = () => {
+    // set ID of the editing reply as null
+    setEditingReplyId(null);
+    // reset the editing reply text
+    setEditingReplyText("");
+  };
+
+  /**
+   * Save an edited reply
+   */
+  const updateReply = async (threadId, replyId) => {
+    // if editing text is empty, do nothing
+    if (!editingReplyText.trim()) {
+      return;
+    }
+
+    // call PATCH /api/comments/threads/:threadId/replies/:replyId to update reply
+    const res = await api.patch(
+      `/comments/threads/${threadId}/replies/${replyId}`,
+      { content: editingReplyText.trim() },
+    );
+
+    // replace the old thread with the updated thread that includes edited reply
+    const updatedThreads = [];
     for (const thread of threads) {
-      if (
-        thread.block === blockId ||
-        (thread.block && thread.block._id === blockId)
-      ) {
-        visibleThreads.push(thread);
+      if (thread._id === threadId) {
+        updatedThreads.push(res.data.thread);
+      } else {
+        updatedThreads.push(thread);
       }
     }
-  } else {
-    // show only comments that have no block param
+
+    // update threads
+    updateThreads(updatedThreads);
+
+    // cancel reply-editing mode
+    cancelEditingReply();
+  };
+
+  /**
+   * Delete a reply from thread
+   */
+  const deleteReply = async (threadId, replyId) => {
+    // confirm with user we want to delete
+    if (
+      !window.confirm(
+        "Yoooo yooo yoooo are you sure you wanna delete this reply?",
+      )
+    ) {
+      return;
+    }
+
+    // call DELETE /api/comments/threads/:threadId/replies/:replyId
+    const res = await api.delete(
+      `/comments/threads/${threadId}/replies/${replyId}`,
+    );
+
+    // update threads
+    const updatedThreads = [];
     for (const thread of threads) {
-      if (!thread.block) {
+      if (thread._id === threadId) {
+        updatedThreads.push(res.data.thread);
+      } else {
+        updatedThreads.push(thread);
+      }
+    }
+    updateThreads(updatedThreads);
+
+    // if the editing reply is the reply that is deleted, cancel the editing reply mode
+    if (editingReplyId === replyId) {
+      cancelEditingReply();
+    }
+  };
+
+  // If blockId exists, show only threads attached to that block
+  // If blockId does not exist, show only page-level threads
+  const visibleThreads = [];
+  for (const thread of threads) {
+    const threadBlockId = thread.block?._id || thread.block || null;
+    if (blockId) {
+      if (threadBlockId?.toString() === blockId.toString()) {
         visibleThreads.push(thread);
       }
+    } else if (!threadBlockId) {
+      visibleThreads.push(thread);
     }
   }
 
@@ -213,7 +283,9 @@ const CommentPanel = ({ pageId, blockId, isOpen, onClose }) => {
       </p>
       <div className="panel-header">
         <h2>Comments</h2>
-        <button onClick={onClose}>×</button>
+        <button type="button" onClick={onClose}>
+          ×
+        </button>
       </div>
 
       {/* create thread area */}
@@ -246,14 +318,72 @@ const CommentPanel = ({ pageId, blockId, isOpen, onClose }) => {
             {/* thread content */}
             <p>{thread.content}</p>
             {/* displays thread's replies */}
-            {thread.replies?.map((reply) => (
-              <div key={reply._id} className="reply-card">
-                {/* display author of reply */}
-                <strong>{reply.author?.username || "Unknown"}</strong>
-                {/* display reply content */}
-                <p>{reply.content}</p>
-              </div>
-            ))}
+            {/* Display every reply inside this discussion thread. */}
+            {thread.replies?.map((reply) => {
+              const currentUserId = user?._id || user?.id;
+              const replyAuthorId = reply.author?._id || reply.author;
+              const isReplyAuthor =
+                currentUserId?.toString() === replyAuthorId?.toString();
+              const isEditing = editingReplyId === reply._id;
+              return (
+                <div key={reply._id} className="reply-card">
+                  <div className="reply-header">
+                    <strong>{reply.author?.username || "Unknown"}</strong>
+
+                    <span>{new Date(reply.createdAt).toLocaleString()}</span>
+                  </div>
+                  {isEditing ? (
+                    /*
+                     * Replace the reply text with an editable textarea while this reply is in editing mode
+                     */
+                    <div className="reply-edit-form">
+                      <textarea
+                        value={editingReplyText}
+                        onChange={(event) =>
+                          setEditingReplyText(event.target.value)
+                        }
+                      />
+
+                      <div className="reply-edit-actions">
+                        <button
+                          type="button"
+                          onClick={() => updateReply(thread._id, reply._id)}
+                        >
+                          Save
+                        </button>
+
+                        <button type="button" onClick={cancelEditingReply}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <p>{reply.content}</p>
+
+                      {/* Only the reply author sees Edit and Delete */}
+                      {isReplyAuthor && (
+                        <div className="reply-actions">
+                          <button
+                            type="button"
+                            onClick={() => startEditingReply(reply)}
+                          >
+                            Edit
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteReply(thread._id, reply._id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
 
             {/* area to add reply to thread */}
             <div className="reply-form">
@@ -268,7 +398,10 @@ const CommentPanel = ({ pageId, blockId, isOpen, onClose }) => {
                 placeholder="Reply to this comment"
               />
               {/* submit button to add reply to thread */}
-              <button onClick={() => addReplyToThread(thread._id)}>
+              <button
+                type="button"
+                onClick={() => addReplyToThread(thread._id)}
+              >
                 Reply
               </button>
             </div>
@@ -291,4 +424,4 @@ const CommentPanel = ({ pageId, blockId, isOpen, onClose }) => {
   );
 };
 
-export default CommentPanel;
+export default CommentsPanel;

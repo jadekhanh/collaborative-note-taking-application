@@ -6,7 +6,7 @@ const router = express.Router();
 
 router.use(protect);
 
-// GET /api/searches
+// GET /api/search?q=...
 router.get("/", search);
 
 module.exports = router;

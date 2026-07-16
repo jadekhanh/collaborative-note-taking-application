@@ -18,8 +18,15 @@ import PageTreeItem from "./PageTreeItem";
  * - selectedPageId: which page is currently opened in Editor
  * - onSelectPage: function to open a page in Editor
  * - onCreatePage: function to create a child page
+ * - canEdit: whether this user is workspace owner or editor
  */
-const PageTree = ({ pages, selectedPageId, onSelectPage, onCreatePage }) => {
+const PageTree = ({
+  pages = [],
+  selectedPageId,
+  onSelectPage,
+  onCreatePage,
+  canEdit,
+}) => {
   /**
    * Recursively build a tree from a flat pages list
    * Top-level pages have parentPage = null
@@ -32,15 +39,19 @@ const PageTree = ({ pages, selectedPageId, onSelectPage, onCreatePage }) => {
     // loop over every page in workspace
     for (const page of pages) {
       // get this page's parent ID
-      let currentParentId;
-      if (page.parentPage && page.parentPage._id) {
-        currentParentId = page.parentPage._id;
-      } else {
-        currentParentId = null;
-      }
+      const currentParentId = page.parentPage?._id || page.parentPage || null;
 
-      // add this page into the list if its parent matches the parent we're looking for
-      if (currentParentId === parentPageId) {
+      // true if this page is the top level page with no parent
+      const isTopLevelMatch = currentParentId === null && parentPageId === null;
+
+      // true if this page belongs to the parent page we're currently building
+      const isChildMatch =
+        currentParentId !== null &&
+        parentPageId !== null &&
+        currentParentId.toString() === parentPageId.toString();
+
+      // if either condition match, add this page
+      if (isTopLevelMatch || isChildMatch) {
         pageTree.push(page);
       }
     }
@@ -59,13 +70,18 @@ const PageTree = ({ pages, selectedPageId, onSelectPage, onCreatePage }) => {
     });
 
     // now recursively build the children for every page we kept
+    const completedTree = [];
     for (const page of pageTree) {
-      // call this function again but parentPageId = this page
-      page.children = buildPageTree(page._id);
+      completedTree.push({
+        // keep all existing page fields
+        ...page,
+        // build this page's child pages
+        children: buildPageTree(page._id),
+      });
     }
 
-    // return complete tree
-    return pageTree;
+    // return the completed tree
+    return completedTree;
   };
 
   // build complete tree
@@ -89,6 +105,7 @@ const PageTree = ({ pages, selectedPageId, onSelectPage, onCreatePage }) => {
           selectedPageId={selectedPageId} // tell every page which page is currently opened in editor
           onSelectPage={onSelectPage} // pass the function that opens page
           onCreatePage={onCreatePage} // pass the function that creates child page
+          canEdit={canEdit} // pass whether this user is workspace owner or editor
         />
       ))}
     </div>

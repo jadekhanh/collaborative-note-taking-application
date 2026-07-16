@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 const useDebounce = (value, delay = 700) => {
   // create state for value = "" initially
   // later when user types "Milu", debouncedValue = "Milu" after waiting for 700ms later
-  const [debouncedValue, setDebouncedValue] = useState("");
+  const [debouncedValue, setDebouncedValue] = useState(value);
 
   // run the following code whenever value or delay renders
   useEffect(() => {

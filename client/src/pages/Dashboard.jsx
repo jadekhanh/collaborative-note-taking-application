@@ -52,15 +52,17 @@ const Dashboard = () => {
    */
   const getWorkspaces = async () => {
     try {
-      // get workspaces by calling GET /api/auth/workspaces
-      const res = await api.get("/auth/workspaces");
+      setError("");
+
+      // get workspaces by calling GET /api/workspaces
+      const res = await api.get("/workspaces");
 
       // set workspaces
       setWorkspaces(res.data.workspaces);
     } catch (error) {
       // set error message
       // try to read res, data, message. if any part doesn't exist, ouput "Failed to load workspaces"
-      setError(error.res?.data?.message || "Failed to load workspaces");
+      setError(error.response?.data?.message || "Failed to load workspaces");
     }
   };
 
@@ -86,7 +88,9 @@ const Dashboard = () => {
     }
 
     try {
-      // create workspace by calling POST /api/auth/workspaces
+      setError("");
+
+      // create workspace by calling POST /api/workspaces
       // workspaceName is passed from onChange={(event) => setWorkspaceName(event.target.value)}
       /**
        * Flow:
@@ -101,16 +105,19 @@ const Dashboard = () => {
        * Reads workspaceName
        * POST /workspaces
        */
-      const res = await api.post("/auth/workspaces", { name: workspaceName });
+      const res = await api.post("/workspaces", { name: workspaceName });
 
       // clear input workspace name since we're done creating new one
       setWorkspaceName("");
       // set current list of workspaces in which the latest createst workspace is at the top
-      setWorkspaces([res.data.workspace, ...workspaces]);
+      setWorkspaces((prevWorkspaces) => [
+        res.data.workspace,
+        ...prevWorkspaces,
+      ]);
     } catch (error) {
       // set error message
       // try to read res, data, message. if any part doesn't exist, ouput "Failed to create a workspace"
-      setError(error.res?.data?.message || "Failed to create a workspace");
+      setError(error.response?.data?.message || "Failed to create a workspace");
     }
   };
 
@@ -122,14 +129,16 @@ const Dashboard = () => {
     const newName = window.prompt("New workspace name", workspace.name);
 
     // if new name is empty, do nothing
-    if (!newName.trim()) {
+    if (!newName?.trim()) {
       return;
     }
 
     try {
+      setError("");
+
       // PUT /api/workspaces/:workspaceId to change name
-      const res = await api.put(`/workspaces/${workspace.id}`, {
-        name: newName,
+      const res = await api.put(`/workspaces/${workspace._id}`, {
+        name: newName.trim(),
       });
 
       // update list of workspaces
@@ -148,7 +157,7 @@ const Dashboard = () => {
         return newWorkspaces;
       });
     } catch (error) {
-      setError(error.res?.data?.message || "Failed to rename workspace");
+      setError(error.response?.data?.message || "Failed to rename workspace");
     }
   };
 
@@ -165,6 +174,8 @@ const Dashboard = () => {
       return;
     }
     try {
+      setError("");
+
       // call DELETE api/workspaces/:workspaceId to delete workspace
       await api.delete(`/workspaces/${workspaceId}`);
 
@@ -182,7 +193,7 @@ const Dashboard = () => {
         return newWorkspaces;
       });
     } catch (error) {
-      setError(error.res?.data?.message || "Failed to delete workspace");
+      setError(error.response?.data?.message || "Failed to delete workspace");
     }
   };
 
@@ -244,16 +255,27 @@ const Dashboard = () => {
       />
 
       <div className="workspace-grid">
-        {workspaces.map((workspace) => (
-          <WorkspaceCard
-            key={workspace._id}
-            workspace={workspace}
-            onOpen={(workspaceId) => navigate(`/workspaces/${workspaceId}`)}
-            onManageMembers={handleOpenMembers}
-            onRename={handleRenameWorkspace}
-            onDelete={handleDeleteWorkspace}
-          />
-        ))}
+        {workspaces.map((workspace) => {
+          // Current authenticated user's ID.
+          const currentUserId = user?._id || user?.id;
+          // Workspace owner may be a populated user object or a plain ID.
+          const workspaceOwnerId = workspace.owner?._id || workspace.owner;
+          // Check whether the current user owns this specific workspace.
+          const isOwner =
+            Boolean(currentUserId && workspaceOwnerId) &&
+            currentUserId.toString() === workspaceOwnerId.toString();
+          return (
+            <WorkspaceCard
+              key={workspace._id}
+              workspace={workspace}
+              isOwner={isOwner}
+              onOpen={(workspaceId) => navigate(`/workspaces/${workspaceId}`)}
+              onManageMembers={handleOpenMembers}
+              onRename={handleRenameWorkspace}
+              onDelete={handleDeleteWorkspace}
+            />
+          );
+        })}
       </div>
       <WorkspaceMembersModal
         workspaceId={selectedWorkspace?._id}

@@ -25,7 +25,10 @@ const search = async (req, res) => {
 
     // get all blocks having content containing query word
     const blocks = await Block.find({
-      content: { $regex: q, $options: "i" },
+      "content.text": {
+        $regex: q,
+        $options: "i",
+      },
     })
       // replace {page} with {userId and isArchived}. only pages that match userId and isArchived displays these fields; else, those blocks have page field = null
       .populate({
@@ -36,7 +39,7 @@ const search = async (req, res) => {
 
     // remove blocks where page = null earlier
     const filteredBlocks = [];
-    for (block of blocks) {
+    for (const block of blocks) {
       if (block.page !== null) {
         filteredBlocks.push(block);
       }

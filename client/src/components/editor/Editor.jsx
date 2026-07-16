@@ -1,5 +1,5 @@
 import { arrayMove } from "@dnd-kit/sortable";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 import { useSocket } from "../../context/SocketContext";
@@ -8,6 +8,7 @@ import ShareModal from "../modals/ShareModal";
 import VersionModal from "../modals/VersionModal";
 import AttachmentsPanel from "../panels/AttachmentsPanel";
 import CommentsPanel from "../panels/CommentsPanel";
+import PresencePanel from "../panels/PresencePanel";
 import BlockList from "./BlockList";
 import EditorToolbar from "./EditorToolbar";
 
@@ -61,34 +62,85 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
   const canEdit = accessRole === "OWNER" || accessRole === "EDITOR";
   // Only the actual page owner may share, archive, or delete the page
   const isOwner = accessRole === "OWNER";
+  // All comment threads inside page inside Comments Panel and blocks
+  const [commentThreads, setCommentThreads] = useState([]);
+  // All attachments inside the page displayed inside Attachments Panel
+  const [attachments, setAttachments] = useState([]);
+  // All permissions for the page displayed inside Share modal
+  const [permissions, setPermissions] = useState([]);
+  // Timer used to automatically create a page version
+  // note: useRef since changing the timer should not cause the Editor to re-render
+  const autoVersionTimeoutRef = useRef(null);
+  // Prevents an automatic version from being created immediately after the page first loads
+  const hasPageLoadedRef = useRef(false);
+  // boolean check if current page loads
+  const isPageLoaded = Boolean(page);
 
   /**
-   * Load page, title, ordered blocks whenever pageId is rendered
+   * Load page, title, ordered blocks, comment threads whenever pageId is rendered
    */
   useEffect(() => {
+    // do nothing if no page is selected
+    if (!pageId) {
+      return;
+    }
+
+    // a flag to prevent an old req from updating state after the user has already switched to another page
+    let isCancelled = false;
+
+    // reset the automatic-version first-load check
+    hasPageLoadedRef.current = false;
+
     const loadPage = async () => {
       try {
-        // reset error message
+        // call GET /api/pages/:pageId to load page
+        const pageResponse = await api.get(`/pages/${pageId}`);
+
+        // call GET /api/comments/page/:pageId/threads
+        const commentsResponse = await api.get(
+          `/comments/page/${pageId}/threads`,
+        );
+
+        // if the user switch pages while the reqs were running, do not apply those results
+        if (isCancelled) {
+          return;
+        }
+
+        // load page and comment data to editor
+        setPage(pageResponse.data.page);
+        setTitle(pageResponse.data.page.title);
+        setBlocks(pageResponse.data.blocks);
+        setAccessRole(pageResponse.data.accessRole);
+        setCommentThreads(commentsResponse.data.threads);
+
+        // clear old data from previous page
+        setRemoteCursors([]);
+        setTypingUsers([]);
         setError("");
-
-        // call GET /api/pages/:pageId
-        const res = await api.get(`/pages/${pageId}`);
-
-        // load page
-        setPage(res.data.page);
-        // load title
-        setTitle(res.data.page.title);
-        // load blocks
-        setBlocks(res.data.blocks);
-        // load access role
-        setAccessRole(res.data.accessRole);
+        setAttachments([]);
+        setPermissions([]);
+        setActiveUsers([]);
+        setSelectedCommentBlockId(null);
+        setIsCommentsOpen(false);
+        setIsAttachmentsOpen(false);
+        setIsShareModalOpen(false);
+        setIsVersionModalOpen(false);
       } catch (error) {
-        // set error message
+        // do not update state if this req is no longer relevant
+        if (isCancelled) {
+          return;
+        }
+
         setError(error.response?.data?.message || "Failed to load page");
       }
     };
 
     loadPage();
+
+    // React runs this when the user switches pages or when Editor is removed
+    return () => {
+      isCancelled = true;
+    };
   }, [pageId]);
 
   /**
@@ -116,6 +168,18 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
     socket.on("page-users-updated", ({ users }) => {
       // run this function to update React state to display active users
       setActiveUsers(users);
+    });
+
+    // listen for Socket.IO event sent by backend when a page is updated
+    socket.on("receive-page-updated", ({ page: updatedPage }) => {
+      // load updated page
+      setPage(updatedPage);
+
+      // load updated title
+      setTitle(updatedPage.title);
+
+      // notify Workspace that the page is updated
+      onPageUpdated(updatedPage);
     });
 
     // listen for Socket.IO event sent by backend when a new block is created
@@ -198,6 +262,39 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
       setBlocks(blocks);
     });
 
+    // listen for Socket.IO event sent by backend when comment threads are updated
+    socket.on("receive-comments-updated", ({ threads }) => {
+      // load updated threads
+      setCommentThreads(threads);
+    });
+
+    // listen for Socket.IO event sent by backend when attachments are updated
+    socket.on("receive-attachments-updated", ({ attachments }) => {
+      // load updated attachments
+      setAttachments(attachments);
+    });
+
+    // listen for Socket.IO event sent by backend when permissions are updated
+    socket.on("receive-permissions-updated", ({ permissions }) => {
+      // load updated permissions
+      setPermissions(permissions);
+    });
+
+    // Update this user's editor permissions immediately when the page owner changes or removes their access
+    socket.on("receive-user-page-access-updated", ({ userId, accessRole }) => {
+      // get current user ID
+      const currentUserId = user?._id || user?.id;
+
+      // ignore role changes intended for another collaborator
+      if (currentUserId?.toString() !== userId?.toString()) {
+        return;
+      }
+
+      // set access role
+      // if it's null, default to VIEWER
+      setAccessRole(accessRole || "VIEWER");
+    });
+
     // listen for Socket.IO event sent by backend when a user starts typing
     socket.on("receive-typing-started", (data) => {
       // extract user from data
@@ -277,15 +374,20 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
       socket.emit("leave-page", { pageId });
       // remove listeners
       socket.off("page-users-updated");
+      socket.off("receive-page-updated");
       socket.off("receive-block-created");
       socket.off("receive-block-updated");
       socket.off("receive-block-deleted");
       socket.off("receive-blocks-reordered");
+      socket.off("receive-comments-updated");
+      socket.off("receive-attachments-updated");
+      socket.off("receive-permissions-updated");
+      socket.off("receive-user-page-access-updated");
       socket.off("receive-typing-started");
       socket.off("receive-typing-stopped");
       socket.off("receive-cursor-moved");
     };
-  }, [socket, pageId, user]);
+  }, [socket, pageId, user, onPageUpdated]);
 
   /**
    * Save new blocks order to MongoDB + Emit to other collaborators through Socket.IO
@@ -377,9 +479,15 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
     // render page with updated page title
     setPage(res.data.page);
 
+    // render updated title
+    setTitle(res.data.page.title);
+
     // since Workspace owns the list of pages, when page title changes, Workspace needs to know
     // tell Workspace that this page has a new title, so Workspace can updates the sidebar
     onPageUpdated(res.data.page);
+
+    // update every other collaborators's editor and sidebar
+    socket.emit("page-updated", { pageId, page: res.data.page });
   };
 
   /**
@@ -629,6 +737,249 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
   };
 
   /**
+   * Emit the latest comment threads to collaborators currently connected to this page
+   */
+  const emitCommentsUpdated = (threads) => {
+    socket.emit("comments-updated", { pageId, threads });
+  };
+
+  /**
+   * Emit the latest attachment list to collaborators currently connected to this page
+   */
+  const emitAttachmentsUpdated = (attachments) => {
+    socket.emit("attachments-updated", {
+      pageId,
+      attachments,
+    });
+  };
+
+  /**
+   * Emit the latest permissions list to collaborators currently connected to this page
+   */
+  const emitPermissionsUpdated = (permissions) => {
+    socket.emit("permissions-updated", {
+      pageId,
+      permissions,
+    });
+  };
+
+  /**
+   * Emit the latest user page acesss to other collaborators currently connected to this page
+   */
+  const emitUserPageAccessUpdated = ({ userId, accessRole }) => {
+    socket.emit("user-page-access-updated", {
+      pageId,
+      userId,
+      accessRole,
+    });
+  };
+
+  /**
+   * Create a new paragraph block directly after another block
+   */
+  const createBlockAfter = async (currentBlockId) => {
+    // if current user is viewer, do nothing
+    if (!canEdit) {
+      return;
+    }
+
+    try {
+      // get current position of current block inside block list
+      const currentIndex = blocks.findIndex(
+        (block) => block._id === currentBlockId,
+      );
+      if (currentIndex === -1) {
+        // if block does not exist
+        return null;
+      }
+
+      // new block must be right after current block
+      const newBlockIndex = currentIndex + 1;
+
+      // move every block after the insertion point down 1 position
+      const shiftedBlocks = blocks.map((block, index) => {
+        // blocks before the insertion point stay the same
+        if (index < newBlockIndex) {
+          return block;
+        }
+        // blocks after insertion point move down 1 position
+        else {
+          return { ...block, order: block.order + 1 };
+        }
+      });
+
+      // call POST /api/blocks to create new block that has the same indent level as current block
+      const res = await api.post("/blocks", {
+        pageId,
+        type: "paragraph",
+        content: {
+          text: "",
+          indentLevel: blocks[currentIndex].content?.indentLevel || 0,
+        },
+        order: newBlockIndex,
+      });
+
+      // updated list of blocks
+      const updatedBlocks = [
+        // everything before the insertion point
+        ...shiftedBlocks.slice(0, newBlockIndex),
+
+        // the new block
+        res.data.block,
+
+        // everything after the insertion point
+        ...shiftedBlocks.slice(newBlockIndex),
+      ].map((block, index) => ({
+        ...block,
+        order: index,
+      }));
+
+      // update React state
+      setBlocks(updatedBlocks);
+
+      // save into db
+      await saveBlockOrder(updatedBlocks);
+
+      // notify other users inside the page that a new block was created
+      socket.emit("block-created", { pageId, block: res.data.block });
+
+      return res.data.block;
+    } catch (error) {
+      setError(error.response?.data?.message || "Failed to create block");
+    }
+  };
+
+  /**
+   * Update block indentation level
+   */
+  const updateBlockIndent = async (blockId, newIndentLevel) => {
+    // if this user is viewer, do nothing
+    if (!canEdit) {
+      return;
+    }
+
+    // find the block that should be indented
+    const block = blocks.find((currentBlock) => currentBlock._id === blockId);
+    if (!block) {
+      // if block does not exist, do nothing
+      return;
+    }
+
+    // update block
+    await updateBlock(blockId, {
+      content: { ...block.content, indentLevel: newIndentLevel },
+    });
+  };
+
+  /**
+   * Upload a file/image to a block
+   */
+  const uploadBlockFile = async (blockId, file) => {
+    // if current user is viewer, do nothing
+    if (!canEdit) {
+      return;
+    }
+
+    try {
+      // create FormData object to send to backend
+      const uploadData = new FormData();
+
+      // attach file
+      uploadData.append("file", file);
+
+      // attach page ID
+      uploadData.append("pageId", pageId);
+
+      // attach block ID
+      uploadData.append("blockId", blockId);
+
+      // send the file to backend with upload data and request headers
+      const res = await api.post("/attachments/upload", uploadData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      return res.data.attachment;
+    } catch (error) {
+      setError(
+        error.response?.data?.message || "Failed to upload file to block",
+      );
+
+      return null;
+    }
+  };
+
+  /**
+   * A serialized representation / signature of the document content
+   * The automatic-version timer restarts only when this content signature changes
+   */
+  const documentVersionSignature = JSON.stringify({
+    title,
+    blocks: blocks.map((block) => ({
+      id: block._id,
+      type: block.type,
+      content: block.content,
+      order: block.order,
+    })),
+  });
+
+  /**
+   * Automatically create a page snapshot after the page has remained unchanged/idle for 2 mins
+   * Timer restarts whenever:
+   * - title changes
+   * - block content changes
+   * - block order changes
+   * - block is created / deleted
+   */
+  useEffect(() => {
+    // if no page is loaded, no pageId exists or current user is not owner, do nothing
+    if (!isPageLoaded || !pageId || !isOwner) {
+      return;
+    }
+
+    // ignore the 1st page render because when the page first loads from MongoDB, nothing is changed, so no need to create automatic snapshot
+    if (!hasPageLoadedRef.current) {
+      hasPageLoadedRef.current = true;
+      return;
+    }
+
+    // create a snapshot of the current page and blocks automatically
+    const createAutomaticSnapshot = async () => {
+      // if user isn't owner or page isn't loaded, do nothing
+      if (!isOwner || !pageId) {
+        return;
+      }
+
+      try {
+        // call POST /api/versions/pages/:pageId to create automatic snapshot
+        await api.post(`/versions/pages/${pageId}`, { source: "AUTO" });
+      } catch (error) {
+        setError(
+          error.response?.data?.message ||
+            "Failed to create automatic snapshot",
+        );
+      }
+    };
+
+    // start a new timer
+    autoVersionTimeoutRef.current = setTimeout(
+      () => {
+        // create a new automatic snapshot after 2 mins
+        createAutomaticSnapshot();
+      },
+      2 * 60 * 1000,
+    );
+
+    // cleanup function
+    // runs this before this effect runs again
+    // cancel previous timer so multiple timers don't exist at the same time
+    return () => {
+      if (autoVersionTimeoutRef.current) {
+        clearTimeout(autoVersionTimeoutRef.current);
+      }
+    };
+  }, [pageId, documentVersionSignature, isOwner, isPageLoaded]);
+
+  /**
    * While a page is loading, display loading message
    */
   if (!page) {
@@ -641,20 +992,8 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
       {/* Display the most recent request error */}
       {error && <p className="error">{error}</p>}
 
-      {/* Display everyone currently connected to this page */}
-      <div className="presence-bar">
-        {activeUsers.map((activeUser) => (
-          <span key={activeUser.socketId}>🍥 {activeUser.username}</span>
-        ))}
-      </div>
-
-      {/* Display collaborators who are actively typing */}
-      {typingUsers.length > 0 && (
-        <p className="typing-indicator">
-          {typingUsers.map((typingUser) => typingUser.username).join(", ")}{" "}
-          editing...
-        </p>
-      )}
+      {/* Presence bar: display online collaborators and typing activity */}
+      <PresencePanel activeUsers={activeUsers} typingUsers={typingUsers} />
 
       {/* Page-level editor actions */}
       <EditorToolbar
@@ -673,6 +1012,8 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
         isOpen={isVersionModalOpen}
         onClose={() => setIsVersionModalOpen(false)}
         pageId={pageId}
+        currentPage={page} // current page data for version diff feature
+        currentBlocks={blocks} // current page blocks for version diff feature
         onRestore={restoreVersion}
       />
 
@@ -680,25 +1021,35 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
       <ShareModal
         pageId={pageId}
         isOpen={isShareModalOpen}
+        permissions={permissions}
+        onPermissionsChanged={setPermissions}
+        onPermissionsUpdated={emitPermissionsUpdated}
+        onUserAccessUpdated={emitUserPageAccessUpdated}
         onClose={() => setIsShareModalOpen(false)}
       />
 
-      {/* Page-level or block-level threaded discussions */}
+      {/* A panel for page-level or block-level comment threads */}
       <CommentsPanel
         pageId={pageId}
         blockId={selectedCommentBlockId}
         isOpen={isCommentsOpen}
+        threads={commentThreads}
+        onThreadsChanged={setCommentThreads}
+        onCommentsUpdated={emitCommentsUpdated}
         onClose={() => {
           setIsCommentsOpen(false);
           setSelectedCommentBlockId(null);
         }}
       />
 
-      {/* File upload, download, preview, and deletion UI */}
+      {/* A panel for file upload, download, preview, and deletion */}
       <AttachmentsPanel
         pageId={pageId}
         canEdit={canEdit}
         isOpen={isAttachmentsOpen}
+        attachments={attachments}
+        onAttachmentsChanged={setAttachments}
+        onAttachmentsUpdated={emitAttachmentsUpdated}
         onClose={() => setIsAttachmentsOpen(false)}
       />
 
@@ -726,16 +1077,20 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
        */}
       <BlockList
         blocks={blocks}
+        commentThreads={commentThreads}
         canEdit={canEdit}
         remoteCursors={remoteCursors}
         onDragEnd={handleDragEnd}
         onUpdateBlock={updateBlock}
         onDeleteBlock={deleteBlock}
         onCopyBlock={copyBlock}
+        onCreateBlockAfter={createBlockAfter}
+        onUpdateBlockIndent={updateBlockIndent}
         onComment={openBlockComments}
         onTypingStarted={emitTypingStarted}
         onTypingStopped={emitTypingStopped}
         onCursorMoved={emitCursorMoved}
+        onUploadFile={uploadBlockFile}
       />
 
       {/* Only owners and editors may create new blocks */}

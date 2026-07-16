@@ -17,22 +17,42 @@ const EditorToolbar = ({
   return (
     <div className="editor-toolbar">
       {/* Anyone with page access may view comments */}
-      <button onClick={onOpenComments}>Comments</button>
+      <button type="button" onClick={onOpenComments}>
+        Comments
+      </button>
 
-      {/* Anyone may browse attachments */}
-      <button onClick={onOpenAttachments}>Attachments</button>
+      {/* Anyone with page access may browse attachments */}
+      <button type="button" onClick={onOpenAttachments}>
+        Attachments
+      </button>
 
-      {/* Only the page owner and editors can view version history */}
-      {canEdit && <button onClick={onOpenVersions}>History</button>}
+      {/* Owners and editors may view version history */}
+      {canEdit && (
+        <button type="button" onClick={onOpenVersions}>
+          History
+        </button>
+      )}
 
-      {/* Only the page owner and editors may share the page */}
-      {canEdit && <button onClick={onOpenShare}>Share</button>}
+      {/* Only the page owner may manage sharing permissions */}
+      {isOwner && (
+        <button type="button" onClick={onOpenShare}>
+          Share
+        </button>
+      )}
 
       {/* Only the page owner may archive the page */}
-      {isOwner && <button onClick={onArchivePage}>Archive</button>}
+      {isOwner && (
+        <button type="button" onClick={onArchivePage}>
+          Archive
+        </button>
+      )}
 
-      {/* Only the page owner may permanently delete the page */}
-      {isOwner && <button onClick={onDeletePage}>Delete</button>}
+      {/* Only the page owner may delete the page */}
+      {isOwner && (
+        <button type="button" onClick={onDeletePage}>
+          Delete
+        </button>
+      )}
     </div>
   );
 };

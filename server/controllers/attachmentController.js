@@ -8,9 +8,12 @@ const PagePermission = require("../models/Permission");
 const checkPageMembership = async (pageId, userId) => {
   // get page
   const page = await Page.findById(pageId);
+  if (!page) {
+    return false;
+  }
 
   // check if this user is the page's owner
-  if (userId === page.owner.toString()) {
+  if (userId.toString() === page.owner.toString()) {
     return true;
   }
 
@@ -79,7 +82,9 @@ const getAttachmentsByPage = async (req, res) => {
     // extract pageId from req.params
     const { pageId } = req.params;
 
-    const attachments = Attachment.find({ page: pageId })
+    const attachments = await Attachment.find({
+      page: pageId,
+    })
       .populate("uploadedBy", "username email")
       .sort({ createdAt: -1 });
 
@@ -96,8 +101,8 @@ const getAttachmentsByPage = async (req, res) => {
  */
 const deleteAttachment = async (req, res) => {
   try {
-    // extract attachmentId from req body
-    const { attachmentId } = req.body;
+    // extract attachmentId from req params
+    const { attachmentId } = req.params;
 
     // get attachment
     const attachment = await Attachment.findById(attachmentId);
@@ -106,7 +111,10 @@ const deleteAttachment = async (req, res) => {
     }
 
     // check if this user has permission to modify attachment in requested page
-    const isPermitted = await checkPageMembership(pageId, req.user._id);
+    const isPermitted = await checkPageMembership(
+      attachment.page,
+      req.user._id,
+    );
     if (!isPermitted) {
       return res.status(403).json({
         message: "Do not have permission to delete attachment",
@@ -116,7 +124,7 @@ const deleteAttachment = async (req, res) => {
     // delete attachment
     await attachment.deleteOne();
 
-    return res.status(201).json({ message: "Successfully delete attachment" });
+    return res.status(200).json({ message: "Successfully delete attachment" });
   } catch (error) {
     return res
       .status(500)
@@ -158,9 +166,9 @@ const uploadAttachment = async (req, res) => {
       block: blockId,
       uploadedBy: req.user._id,
       fileUrl: fileUrl,
-      fileName: req.file.fileName,
-      fileType: req.file.fileType,
-      fileSize: req.file.fileSize,
+      fileName: req.file.originalname,
+      fileType: req.file.mimetype,
+      fileSize: req.file.size,
       storageProvider: "LOCAL",
     });
 

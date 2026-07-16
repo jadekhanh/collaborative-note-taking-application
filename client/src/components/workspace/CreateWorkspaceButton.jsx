@@ -12,9 +12,10 @@ const CreateWorkspaceButton = ({
       {/* Input box to type workspace name */}
       <input
         type="text"
-        placeHolder="New workspace name"
+        placeholder="New workspace name"
         value={workspaceName}
         onChange={(event) => onWorkspaceNameChange(event.target.value)}
+        required
       />
 
       {/* Create workspace button */}

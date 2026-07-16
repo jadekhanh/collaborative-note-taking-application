@@ -195,11 +195,10 @@ const getArchivedPages = async (req, res) => {
     // GET /pages/:workspaceId
     const { workspaceId } = req.params;
 
-    // check if this user is member of the workspace
-    const workspaceRole = await getWorkspaceRole(workspaceId, req.user._id);
-    if (!workspaceRole) {
+    // check if this user is workspace owner or editor
+    if (workspaceRole !== "OWNER" && workspaceRole !== "EDITOR") {
       return res.status(403).json({
-        message: "Do not have access to this workspace",
+        message: "Editor access is required to view archived pages",
       });
     }
 

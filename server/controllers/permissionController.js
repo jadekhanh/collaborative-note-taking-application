@@ -14,6 +14,11 @@ const createPagePermission = async (req, res) => {
     const { pageId } = req.params;
     // get email, role from req body
     const { email, role } = req.body;
+    if (role !== "VIEWER" && role !== "EDITOR") {
+      return res.status(400).json({
+        message: "Role must be VIEWER or EDITOR",
+      });
+    }
 
     // get page
     const page = await Page.findById(pageId);
@@ -21,16 +26,11 @@ const createPagePermission = async (req, res) => {
       return res.status(404).json({ message: "Page not found" });
     }
 
-    // check if this person has permission as editor or owner to share the page
-    const isPermitted = await PagePermission.findOne({
-      page: pageId,
-      user: req.user._id,
-      role: { $in: ["OWNER", "EDITOR"] },
-    });
-    if (!isPermitted) {
-      return res
-        .status(403)
-        .json({ message: "Do not have permission to share the page" });
+    // only owner can share the page
+    if (page.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        message: "Only the page owner can manage sharing permissions",
+      });
     }
 
     // get invited user with email
@@ -114,6 +114,11 @@ const updatePagePermission = async (req, res) => {
     const { permissionId } = req.params;
     // extract role from req body
     const { role } = req.body;
+    if (role !== "VIEWER" && role !== "EDITOR") {
+      return res.status(400).json({
+        message: "Role must be VIEWER or EDITOR",
+      });
+    }
 
     // get page permission
     const permission = await PagePermission.findById(permissionId);
@@ -121,21 +126,19 @@ const updatePagePermission = async (req, res) => {
       return res.status(404).json({ message: "Page permission not found" });
     }
 
-    // check if this person has permission as editor or owner to update the page permission
-    const isPermitted = await PagePermission.findOne({
-      page: permission.page,
-      user: req.user._id,
-      role: { $in: ["OWNER", "EDITOR"] },
-    });
-    if (!isPermitted) {
-      return res
-        .status(403)
-        .json({ message: "Do not have permission to update page permission" });
+    // only page owner can manage page permission
+    if (permission.page.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        message: "Only the page owner can manage sharing permissions",
+      });
     }
 
     // update permission
     permission.role = role;
     await permission.save();
+
+    // populate permission
+    await permission.populate("user", "username email");
 
     return res
       .status(200)
@@ -163,16 +166,11 @@ const deletePagePermission = async (req, res) => {
       return res.status(404).json({ message: "Page permission not found" });
     }
 
-    // check if this person has permission as editor or owner to update the page permission
-    const isPermitted = await PagePermission.findOne({
-      page: permission.page,
-      user: req.user._id,
-      role: { $in: ["OWNER", "EDITOR"] },
-    });
-    if (!isPermitted) {
-      return res
-        .status(403)
-        .json({ message: "Do not have permission to delete page permission" });
+    // only page owner can manage page permission
+    if (permission.page.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        message: "Only the page owner can manage sharing permissions",
+      });
     }
 
     // delete permission

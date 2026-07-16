@@ -18,12 +18,16 @@ import Editor from "../components/editor/Editor";
 import SearchModal from "../components/modals/SearchModal";
 import ArchivedPagesPanel from "../components/panels/ArchivedPagesPanel";
 import Sidebar from "../components/sidebar/Sidebar";
+import { useAuth } from "../context/AuthContext";
 
 /**
  * React component = a function that returns UI
  * This is Workspace page
  */
 const Workspace = () => {
+  // Current user
+  const { user } = useAuth();
+
   // Extract workspaceId from the URL
   const { workspaceId } = useParams();
 
@@ -44,6 +48,17 @@ const Workspace = () => {
 
   // Controls whether the archived-pages panel is open
   const [isArchivedPagesOpen, setIsArchivedPagesOpen] = useState(false);
+
+  // Get the current authenticated user's ID
+  const currentUserId = user?._id || user?.id;
+  // Find the current user's membership inside this workspace
+  const currentMember = workspace?.members?.find((member) => {
+    const memberUserId = member.user?._id || member.user;
+    return memberUserId?.toString() === currentUserId?.toString();
+  });
+  // Boolean whether this user has editor access (is workspace OWNER or EDITOR)
+  const canEditWorkspace =
+    currentMember?.role === "OWNER" || currentMember?.role === "EDITOR";
 
   // useEffect() = run the following code whenever the component loads or when specified dependencies change
   useEffect(() => {
@@ -82,6 +97,11 @@ const Workspace = () => {
    * - a nested child page when parentPage is a pageId
    */
   const handleCreatePage = async (parentPage = null) => {
+    // if this user is workspace viewer only, do nothing
+    if (!canEditWorkspace) {
+      return;
+    }
+
     try {
       // reset error message
       setError("");
@@ -128,68 +148,74 @@ const Workspace = () => {
    * Handle archive page
    */
   const handlePageArchived = (pageId) => {
-    // list of pages excluding page that is just archived
-    const remainingPages = pages.filter((page) => page._id !== pageId);
+    setPages((prevPages) => {
+      // create new pages list
+      const remainingPages = [];
 
-    // display remaning pages
-    setPages(remainingPages);
+      // only push non-archived pages
+      for (const page of prevPages) {
+        if (page._id !== pageId) {
+          remainingPages.push(page);
+        }
+      }
 
-    // if the archived page is the page that is opened, open the first page in the top of the remaining pages list
-    if (selectedPageId === pageId) {
-      setSelectedPageId(remainingPages[0]?._id || null);
-    }
+      // if the archived page is the page that is displayed on editor
+      if (selectedPageId === pageId) {
+        // display the 1st page in the remaining pages list
+        setSelectedPageId(remainingPages[0]?._id || null);
+      }
+
+      return remainingPages;
+    });
   };
 
   /**
    * Handle update a page
    * When a page is updated, the sidebar is updated to push the newly updated page on top
    */
-  const handleUpdatePage = async (updatedPage) => {
-    // create a new list of page
-    const newPages = [];
-    // loop over the current list of page
-    for (const page of pages) {
-      // if this page has the same ID with newly updated page, add it into the list
-      // so we do not add the old version, we add the same page but new version
-      if (page._id === updatedPage._id) {
-        newPages.push(updatedPage);
-        // if this page is not the newly updated page, add it into the list
-      } else {
-        newPages.push(page);
+  const handleUpdatePage = (updatedPage) => {
+    setPages((prevPages) => {
+      // create new pages list
+      const newPages = [];
+
+      for (const page of prevPages) {
+        // replace the old page with the new updated page
+        if (page._id === updatedPage._id) {
+          newPages.push(updatedPage);
+        }
+        // push the rest
+        else {
+          newPages.push(page);
+        }
       }
-    }
-    // set the list of pages as the new list
-    setPages(newPages);
+
+      return newPages;
+    });
   };
 
   /**
    * Handle delete a page
    * When a page is deleted, the sidebar is updated to remove the deleted page from the list
    */
-  const handleDeletePage = async (deletedPage) => {
-    // create a new list of page
-    const newPages = [];
-    // loop over the current list of page
-    for (const page of pages) {
-      // if this page is not the deleted page
-      if (page._id !== deletedPage._id) {
-        newPages.push(page);
-      }
-    }
-    // set the list of pages as the new list
-    setPages(newPages);
+  const handleDeletePage = (deletedPageId) => {
+    setPages((prevPages) => {
+      // create new pages list
+      const newPages = [];
 
-    // if the deleted page is the page that is currently opened
-    if (selectedPageId === deletedPage._id) {
-      // if the list of pages > 0
-      if (newPages.length > 0) {
-        // then open the page that is on top of the list
-        setSelectedPageId(newPages[0]._id);
-      } else {
-        // do not open anything
-        setSelectedPageId(null);
+      // only push the pages that is not deleted
+      for (const page of prevPages) {
+        if (page._id !== deletedPageId) {
+          newPages.push(page);
+        }
       }
-    }
+
+      // if the page deleted is the page being displayed in editor, display the 1st page in the remaining pages list
+      if (selectedPageId === deletedPageId) {
+        setSelectedPageId(newPages[0]?._id || null);
+      }
+
+      return newPages;
+    });
   };
 
   // return page UI
@@ -201,23 +227,25 @@ const Workspace = () => {
         onClose={() => setIsSearchOpen(false)}
         onSelectPage={(pageId) => {
           setSelectedPageId(pageId);
-          setIsSearchOpen(false);
         }}
       />
 
-      {/* Open the archived-pages panel */}
-      <button
-        type="button"
-        className="floating-archive-button"
-        onClick={() => setIsArchivedPagesOpen(true)}
-      >
-        Archived
-      </button>
+      {/* Open the archived-pages panel, only visible to workspace OWNER and EDITOR */}
+      {canEditWorkspace && (
+        <button
+          type="button"
+          className="floating-archive-button"
+          onClick={() => setIsArchivedPagesOpen(true)}
+        >
+          Archived
+        </button>
+      )}
 
       {/* Display archived pages and allow restoring them */}
       <ArchivedPagesPanel
         workspaceId={workspaceId}
         isOpen={isArchivedPagesOpen}
+        canEdit={canEditWorkspace} // only visible to workspace OWNER and EDITOR
         onClose={() => setIsArchivedPagesOpen(false)}
         onPageRestored={handlePageRestored}
       />
@@ -230,6 +258,7 @@ const Workspace = () => {
         workspace={workspace}
         pages={pages}
         selectedPageId={selectedPageId}
+        canEdit={canEditWorkspace}
         onSelectPage={setSelectedPageId}
         onCreatePage={handleCreatePage}
         onOpenSearch={() => setIsSearchOpen(true)}
@@ -257,9 +286,11 @@ const Workspace = () => {
           <div className="empty-editor">
             <h2>No page selected</h2>
 
-            <button type="button" onClick={() => handleCreatePage(null)}>
-              Create a page
-            </button>
+            {canEditWorkspace && (
+              <button type="button" onClick={() => handleCreatePage(null)}>
+                Create a page
+              </button>
+            )}
           </div>
         )}
       </main>

@@ -9,32 +9,78 @@ import api from "../../api/axios";
  * - onClose: function from Editor. When called, Editor closes the panel
  * - canEdit: whether the user has editor access to the page
  */
-const AttachmentPanel = ({ pageId, isOpen, onClose, canEdit }) => {
-  // set React state for list of attachments
-  const [attachments, setAttachments] = useState([]);
+const AttachmentsPanel = ({
+  pageId,
+  canEdit,
+  isOpen,
+  attachments = [],
+  onAttachmentsChanged,
+  onAttachmentsUpdated,
+  onClose,
+}) => {
   // set React state for file that user selects: it stores { name, size, type, lastModified }
   const [selectedFile, setSelectedFile] = useState(null);
   // set React state for error message
   const [error, setError] = useState("");
 
+  /**
+   * Notify Editor about attachments change and emit attachments to other collaborators
+   */
+  const updateAttachments = (attachments) => {
+    // notify Editor about attachments change
+    if (onAttachmentsChanged) {
+      onAttachmentsChanged(attachments);
+    }
+
+    // emit attachments to other collaborators
+    if (onAttachmentsUpdated) {
+      onAttachmentsUpdated(attachments);
+    }
+  };
+
   // run the following code whenever pageId or isOpen is rendered
   useEffect(() => {
-    // only displays attachments when the panel is opened on a page
-    if (isOpen && pageId) {
-      /**
-       * Load all attachments
-       */
-      const getAttachments = async () => {
-        // call GET /attachments/page/:pageId
+    // if panel isn't open or page isn't loaded, do nothing
+    if (!isOpen || !pageId) {
+      return;
+    }
+
+    // track whether this effect is still effective
+    // if the user closes the panel or switches page before the req finishes, ignore the old res
+    let isCancelled = false;
+
+    // load attachments
+    const loadAttachments = async () => {
+      try {
+        // reset error message
+        setError("");
+
+        // call GET /api/attachments/page:pageId to load attachments
         const res = await api.get(`/attachments/page/${pageId}`);
 
-        // display all attachments
-        setAttachments(res.data.attachments);
-      };
+        // if the req still belong to the current page and Editor provides callback
+        if (!isCancelled && onAttachmentsChanged) {
+          // notify Editor about the attachment change
+          onAttachmentsChanged(res.data.attachments);
+        }
+      } catch (error) {
+        // only show error if this req isn't cancelled
+        if (!isCancelled) {
+          setError(
+            error.response?.data?.message || "Failed to load attachments",
+          );
+        }
+      }
+    };
 
-      getAttachments();
-    }
-  }, [isOpen, pageId]);
+    loadAttachments();
+
+    // cleanup function
+    // run this before this effect runs again or when the component unmounts
+    return () => {
+      isCancelled = true;
+    };
+  }, [isOpen, pageId, onAttachmentsChanged]);
 
   /**
    * Upload an attachment
@@ -44,12 +90,15 @@ const AttachmentPanel = ({ pageId, isOpen, onClose, canEdit }) => {
     // prevent the browser to automatically refresh the browser when user hits submit
     event.preventDefault();
 
-    // if there's no selected file do nothing
-    if (!selectedFile) {
+    // if there's no selected file or this user is viewer, do nothing
+    if (!selectedFile || !canEdit) {
       return;
     }
 
     try {
+      // reset error message
+      setError("");
+
       // create an upload package
       const uploadData = new FormData();
       // add file field to package
@@ -60,15 +109,17 @@ const AttachmentPanel = ({ pageId, isOpen, onClose, canEdit }) => {
       // call POST /api/attachments/upload to upload file
       const res = await api.post("/attachments/upload", uploadData);
 
-      // display attachments
-      setAttachments([res.data.attachment, ...attachments]);
+      // load attachments list with new attachment on top of the list
+      updateAttachments([res.data.attachment, ...attachments]);
+
       // reset selected file
       setSelectedFile(null);
+
       // reset event target
       event.target.reset();
     } catch (error) {
       // display error message
-      setError(error.res?.data.message || "Failed to upload attachment");
+      setError(error.response?.data?.message || "Failed to upload attachment");
     }
   };
 
@@ -76,11 +127,19 @@ const AttachmentPanel = ({ pageId, isOpen, onClose, canEdit }) => {
    * Delete an attachment
    */
   const deleteAttachment = async (attachmentId) => {
+    // if this user is a viewer, do nothing
+    if (!canEdit) {
+      return;
+    }
+
     try {
+      // reset error message
+      setError("");
+
       // call DELETE /attachments/:attachmentId to delete attachment
       await api.delete(`/attachments/${attachmentId}`);
 
-      // get new list of attachments
+      // update attachments list
       const newAttachments = [];
       for (const attachment of attachments) {
         // if this attachment isn't the attachment we deleted, add into list
@@ -88,12 +147,10 @@ const AttachmentPanel = ({ pageId, isOpen, onClose, canEdit }) => {
           newAttachments.push(attachment);
         }
       }
-
-      // display new list of attachments
-      setAttachments(newAttachments);
+      updateAttachments(newAttachments);
     } catch (error) {
       // display error message
-      setError(error.res?.data.message || "Failed to delete attachment");
+      setError(error.response?.data?.message || "Failed to delete attachment");
     }
   };
 
@@ -109,7 +166,9 @@ const AttachmentPanel = ({ pageId, isOpen, onClose, canEdit }) => {
     <aside className="attachments-panel">
       <div className="panel-header">
         <h2>Attachments</h2>
-        <button onClick={onClose}>×</button>
+        <button type="button" onClick={onClose}>
+          ×
+        </button>
       </div>
 
       {/* Display error message */}
@@ -120,7 +179,9 @@ const AttachmentPanel = ({ pageId, isOpen, onClose, canEdit }) => {
         <form className="attachment-form" onSubmit={uploadAttachment}>
           <input
             type="file"
-            onChange={(event) => setSelectedFile(event.target.files[0])}
+            onChange={(event) =>
+              setSelectedFile(event.target.files?.[0] || null)
+            }
           />
 
           {/* Upload Attachment button */}
@@ -148,7 +209,10 @@ const AttachmentPanel = ({ pageId, isOpen, onClose, canEdit }) => {
 
             {/* Button to delete attachment */}
             {canEdit && (
-              <button onClick={() => deleteAttachment(attachment._id)}>
+              <button
+                type="button"
+                onClick={() => deleteAttachment(attachment._id)}
+              >
                 Delete
               </button>
             )}
@@ -159,4 +223,4 @@ const AttachmentPanel = ({ pageId, isOpen, onClose, canEdit }) => {
   );
 };
 
-export default AttachmentPanel;
+export default AttachmentsPanel;

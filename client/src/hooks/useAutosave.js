@@ -10,46 +10,56 @@ import { useEffect, useRef, useState } from "react";
  * - enabled = should autosave runs (false for read-only pages)
  */
 const useAutosave = ({ value, onSave, delay = 800, enabled = true }) => {
-  // set save status (initlaly "saved", later "saving", then "saved" or "error")
   const [status, setStatus] = useState("saved");
-  // check if this is the first time the value is first rendered from database, then do not save
+
+  // Remember whether this is the first render.
   const isFirstRendered = useRef(true);
 
-  // run this code whenever value changes
+  // Store the latest onSave function
+  const onSaveRef = useRef(onSave);
+
+  /*
+   * Update the ref after rendering whenever the parent provides a new onSave function
+   * Updating a ref does not cause another render
+   */
   useEffect(() => {
-    // if autosave is disabled, do nothing
+    onSaveRef.current = onSave;
+  }, [onSave]);
+
+  /*
+   * Debounce autosaving whenever the value changes
+   */
+  useEffect(() => {
+    // Do nothing when autosave is disabled
     if (!enabled) {
       return;
     }
 
-    // when the component first loads from database, which is when isFirstRendered = true, then make it false and do nothing
-    // from when isFirstRendered = false, autosave is enabled
+    // Do not save the initial value loaded from the backend
     if (isFirstRendered.current) {
       isFirstRendered.current = false;
       return;
     }
 
-    // set save status = saving
-    // UI can show "saving..."
-    setStatus("saving");
-
-    // start timer
+    // Start the autosave countdown
     const timeoutId = setTimeout(async () => {
       try {
-        // call onSave function (api.patch())
-        await onSave(value);
+        setStatus("saving");
 
-        // set save status = saved
+        // Call the latest onSave function stored in the ref
+        await onSaveRef.current(value);
+
         setStatus("saved");
       } catch {
-        // set save status = error
         setStatus("error");
       }
     }, delay);
 
-    // if the user starts typing, restart the timer
-    return () => clearTimeout(timeoutId);
-  }, [value, delay, onSave, enabled]);
+    // If the value changes again before the delay finishes, cancel the old timer and let the effect start a new one
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [value, delay, enabled]);
 
   return status;
 };

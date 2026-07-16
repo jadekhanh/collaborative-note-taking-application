@@ -5,46 +5,80 @@ import api from "../../api/axios";
  * Share modal UI
  *
  * Responsibilities:
- * Invite collaborator
+ * Invite collaborator by email
  * Assign VIEWER / EDITOR
- * Update permission
- * Remove access
+ * Update existing page permission
+ * Remove page access
  *
  * @params
- * - pageId: current open page
- * - isOpen: whether the Share modal is being opened by user
- * - onClose: function from Editor that opens/closes the Share modal
+ * - pageId: currently opened page
+ * - isOpen: whether the Share modal is open
+ * - permissions: permission inside current page
+ * - onPermissionsChanged: function from Editor to update permissions to the page
+ * - onPermissionsUpdated: function from Editor to broadcast permissions list to other collaborators through Socket.IO
+ * - onUserAccessUpdated: function from Editor to broadcast this user's new access role
+ * - onClose: function from Editor that closes the Share modal
  */
-const ShareModal = ({ pageId, isOpen, onClose }) => {
-  // React state for permissions in this page
-  const [permissions, setPermissions] = useState([]);
-  // React state for user email
+const ShareModal = ({
+  pageId,
+  isOpen,
+  permissions = [],
+  onPermissionsChanged,
+  onPermissionsUpdated,
+  onUserAccessUpdated,
+  onClose,
+}) => {
+  // email of the user receiving page access
   const [email, setEmail] = useState("");
-  // React state for user role
-  const [role, setRole] = useState("");
-  // React state for error message
+  // role of the user receiving page access, default to VIEWER
+  const [role, setRole] = useState("VIEWER");
+  // request error shown inside modal
   const [error, setError] = useState("");
+
+  /**
+   * Update Editor's permission state and broadcast local changes
+   */
+  const updatePermissions = (permissions) => {
+    // notify Editor that permissions are changed and update this modal's permission prop
+    if (onPermissionsChanged) {
+      onPermissionsChanged(permissions);
+    }
+
+    // broadcast permissions list to other collaborators through Socket.IO
+    if (onPermissionsUpdated) {
+      onPermissionsUpdated(permissions);
+    }
+  };
 
   /**
    * Load all permissions whenever the Share modal is opened and we're on a page
    */
   useEffect(() => {
-    if (isOpen && pageId) {
-      const loadPermissions = async () => {
-        try {
-          // call GET /api/pages/:pageId/permissions
-          const res = await api.get(`/pages/${pageId}/permissions`);
-
-          // display all permissions in this page
-          setPermissions(res.data.permissions);
-        } catch (error) {
-          setError(error.res?.data?.message || "Failed to load permissions");
-        }
-      };
-
-      loadPermissions();
+    // if Share modal isn't open or page isn't loaded
+    if (!isOpen || !pageId) {
+      return;
     }
-  }, [isOpen, pageId]);
+
+    // load permissions list
+    const loadPermissions = async () => {
+      try {
+        // reset error message
+        setError("");
+
+        // call GET /api/pages/:pageId/permissions to load this page's permissions list
+        const res = await api.get(`/pages/${pageId}/permissions`);
+
+        // notify Editor that permissions are loaded
+        if (onPermissionsChanged) {
+          onPermissionsChanged(res.data.permissions);
+        }
+      } catch (error) {
+        setError(error.response?.data?.message || "Failed to load permissions");
+      }
+    };
+
+    loadPermissions();
+  }, [isOpen, pageId, onPermissionsChanged]);
 
   /**
    * Create permission to a page / invite user to a page
@@ -53,15 +87,47 @@ const ShareModal = ({ pageId, isOpen, onClose }) => {
     // prevent browser refresh page automatically when user hits submit button
     event.preventDefault();
 
+    // if email input is empty, do nothing
+    if (!email.trim()) {
+      return;
+    }
+
     try {
+      // reset error message
+      setError("");
+
       // call POST /api/pages/:pageId/permissions to create permission
       const res = await api.post(`/pages/${pageId}/permissions`, {
         email,
         role,
       });
 
-      // update all permissions including one just created
-      setPermissions([...permissions, res.data.permission]);
+      // check if this permission is updated or brand new
+      let permissionWasReplaced = false;
+
+      // update all permissions including one just updated/created
+      const updatedPermissions = [];
+      for (const permission of permissions) {
+        if (permission._id === res.data.permission._id) {
+          updatedPermissions.push(res.data.permission);
+          permissionWasReplaced = true;
+        } else {
+          updatedPermissions.push(permission);
+        }
+      }
+      // push the new permission if it's brand new
+      if (!permissionWasReplaced) {
+        updatedPermissions.push(res.data.permission);
+      }
+      updatePermissions(updatedPermissions);
+
+      // tell the affected collaborator that their access changed so their editor can immediately update its access role
+      if (onUserAccessUpdated) {
+        onUserAccessUpdated({
+          userId: res.data.permission.user._id,
+          accessRole: res.data.permission.role,
+        });
+      }
 
       // reset email input box
       setEmail("");
@@ -73,29 +139,39 @@ const ShareModal = ({ pageId, isOpen, onClose }) => {
   };
 
   /**
-   * Update permission to a page
+   * Update a collaborator's permission to a page (between VIEWER and EDITOR)
    */
   const updatePermission = async (permissionId, role) => {
     try {
-      // call PUT /api/pages/permissions/:permissionId to update permission
-      const res = await api.put(`/pages/permissions/${pageId}`, { role });
+      // reset error message
+      setError("");
 
-      // update all permissions React state
-      setPermissions((prevPermissions) => {
-        // create new list of permissions
-        const newPermissions = [];
-        for (const permission of prevPermissions) {
-          // if this permission isn't the permission we just update, push it into the list
-          if (permission._id !== permissionId) {
-            newPermissions.push(permission);
-          } else {
-            // if it is, push in the new permission we got from backend
-            newPermissions.push(res.data.permission);
-          }
+      // call PUT /api/pages/:pageId/permissions/:permissionId to update permission
+      const res = await api.put(
+        `/pages/${pageId}/permissions/${permissionId}`,
+        {
+          role,
+        },
+      );
+
+      // update all permissions list and broadcast the new permissions list
+      const updatedPermissions = [];
+      for (const permission of permissions) {
+        if (permission._id === permissionId) {
+          updatedPermissions.push(res.data.permission);
+        } else {
+          updatedPermissions.push(permission);
         }
+      }
+      updatePermission(updatedPermissions);
 
-        return newPermissions;
-      });
+      // immediately update the affected user's open editor role
+      if (onUserAccessUpdated) {
+        onUserAccessUpdated({
+          userId: res.data.permission.user._id,
+          accessRole: res.data.permission.role,
+        });
+      }
     } catch (error) {
       setError(error.res?.data?.message || "Failed to update permission");
     }
@@ -105,25 +181,48 @@ const ShareModal = ({ pageId, isOpen, onClose }) => {
    * Remove permission to a page
    */
   const removePermission = async (permissionId) => {
+    // get the permission
+    const removedPermission = permissions.find(
+      (permission) => permission._id === permissionId,
+    );
+    if (!removedPermission) {
+      return;
+    }
+
+    // confirm with user that they want to remove access to this user
+    if (
+      !window.confirm(
+        "I be like holw up wait a minute girl, are you sure you want to remove this user's access to the page?",
+      )
+    ) {
+      return;
+    }
+
     try {
-      // call DELETE /api/pages/permissions/:permissionId to remove permission
-      await api.delete(`/pages/permissions/${permissionId}`);
+      // reset error message
+      setError("");
 
-      // update all permissions React state
-      setPermissions((prevPermissions) => {
-        // create new list of permissions
-        const newPermissions = [];
-        for (const permission of prevPermissions) {
-          // if this permission isn't the permission we just removed, push it into the list
-          if (permission._id !== permissionId) {
-            newPermissions.push(permission);
-          }
+      // call DELETE /api/pages/:pageId/permissions/:permissionId to remove permission
+      await api.delete(`/pages/${pageId}/permissions/${permissionId}`);
+
+      // update permissions list
+      const updatedPermissions = [];
+      for (const permission of permissions) {
+        if (permission._id !== permissionId) {
+          updatedPermissions.push(permission);
         }
+      }
+      updatePermissions(updatedPermissions);
 
-        return newPermissions;
-      });
+      // update the affected user's access role to their editor
+      if (onUserAccessUpdated && removedPermission) {
+        onUserAccessUpdated({
+          userId: removedPermission.user._id,
+          accessRole: null,
+        });
+      }
     } catch (error) {
-      setError(error.res?.data?.message || "Failed to update permission");
+      setError(error.res?.data?.message || "Failed to remove permission");
     }
   };
 
@@ -140,19 +239,28 @@ const ShareModal = ({ pageId, isOpen, onClose }) => {
       <div className="share-modal">
         <div className="modal-header">
           <h2>Share Page</h2>
-          <button onClick={onClose}>×</button>
+
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close share modal"
+          >
+            ×
+          </button>
         </div>
 
         {error && <p className="error">{error}</p>}
 
-        {/* Invite user form */}
+        {/* Invite a registered user by email and assign their role */}
         <form onSubmit={createPermission} className="share-form">
           <input
+            type="email"
             placeholder="Email address"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
+            required
           />
-          {/* Options to set user role */}
+
           <select
             value={role}
             onChange={(event) => setRole(event.target.value)}
@@ -160,17 +268,25 @@ const ShareModal = ({ pageId, isOpen, onClose }) => {
             <option value="VIEWER">Viewer</option>
             <option value="EDITOR">Editor</option>
           </select>
-          {/* Submit button */}
+
           <button type="submit">Invite</button>
         </form>
-        {/* List of page permissions */}
+
+        {/* Display and manage every page-specific permission */}
         <div className="permission-list">
           {permissions.map((permission) => (
             <div key={permission._id} className="permission-card">
               <div>
-                <strong>{permission.user.email}</strong>
+                <strong>
+                  {permission.user?.username ||
+                    permission.user?.email ||
+                    "Unknown user"}
+                </strong>
+
+                {permission.user?.username && <p>{permission.user?.email}</p>}
               </div>
-              {/* Option to update user permission */}
+
+              {/* Change the collaborator between Viewer and Editor */}
               <select
                 value={permission.role}
                 onChange={(event) =>
@@ -180,8 +296,12 @@ const ShareModal = ({ pageId, isOpen, onClose }) => {
                 <option value="VIEWER">Viewer</option>
                 <option value="EDITOR">Editor</option>
               </select>
-              {/* Remove user permission */}
-              <button onClick={() => removePermission(permission._id)}>
+
+              {/* Remove this user's page-specific access */}
+              <button
+                type="button"
+                onClick={() => removePermission(permission._id)}
+              >
                 Remove
               </button>
             </div>

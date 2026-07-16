@@ -39,7 +39,7 @@ const createBlock = async (req, res) => {
     const isPermitted = await checkPageMembership(pageId, req.user._id);
     if (!isPermitted) {
       return res
-        .status(404)
+        .status(403)
         .json({ message: "Do not have permission to edit page" });
     }
 
@@ -69,11 +69,11 @@ const createBlock = async (req, res) => {
 const copyBlock = async (req, res) => {
   try {
     // extract id from req param
-    const { id } = req.params;
+    const { blockId } = req.params;
     // get original block
-    const originalBlock = await Block.findById(id);
+    const originalBlock = await Block.findById(blockId);
     if (!originalBlock) {
-      res.status(401).json({ message: "Block not found" });
+      return res.status(401).json({ message: "Block not found" });
     }
 
     // check if this user has permission to block's page
@@ -83,7 +83,7 @@ const copyBlock = async (req, res) => {
     );
     if (!isPermitted) {
       return res
-        .status(404)
+        .status(403)
         .json({ message: "Do not have permission to page" });
     }
 
@@ -93,8 +93,8 @@ const copyBlock = async (req, res) => {
       type: originalBlock.type,
       content: originalBlock.content,
       order: originalBlock.order + 1, // right below the original block
-      createdBy: req.use._id,
-      updatedAt: req.user._id,
+      createdBy: req.user._id,
+      updatedBy: req.user._id,
     });
 
     res
@@ -119,7 +119,7 @@ const getBlocksByPage = async (req, res) => {
     const isPermitted = await checkPageMembership(pageId, req.user._id);
     if (!isPermitted) {
       return res
-        .status(404)
+        .status(403)
         .json({ message: "Do not have permission to edit page" });
     }
 
@@ -139,17 +139,24 @@ const getBlocksByPage = async (req, res) => {
  */
 const updateBlock = async (req, res) => {
   try {
-    // extract from req body
-    const { blockId, type, content, order } = req.body;
+    // extract blockId from req params
+    const { blockId } = req.params;
+    // extract type, content, order from req body
+    const { type, content, order } = req.body;
 
     // get block
     const block = await Block.findById(blockId);
+    if (!block) {
+      return res.status(403).json({
+        message: "Block not found",
+      });
+    }
 
     // check if this user has permission to block's page
     const isPermitted = await checkPageMembership(block.page, req.user._id);
     if (!isPermitted) {
       return res
-        .status(404)
+        .status(403)
         .json({ message: "Do not have permission to edit page" });
     }
 
@@ -189,7 +196,7 @@ const reorderBlocks = async (req, res) => {
     const isPermitted = await checkPageMembership(pageId, req.user._id);
     if (!isPermitted) {
       return res
-        .status(404)
+        .status(403)
         .json({ message: "Do not have permission to edit page" });
     }
 
@@ -200,7 +207,16 @@ const reorderBlocks = async (req, res) => {
 
     // update each block's order
     for (const block of blocks) {
-      await Block.findByIdAndUpdate(block.blockId, { order: block.order });
+      await Block.findOneAndUpdate(
+        {
+          _id: block.blockId,
+          page: pageId,
+        },
+        {
+          order: block.order,
+          updatedBy: req.user._id,
+        },
+      );
     }
 
     return res.status(200).json({ message: "Successfully reorder blocks" });
@@ -221,12 +237,17 @@ const deleteBlock = async (req, res) => {
 
     // get block
     const block = await Block.findById(blockId);
+    if (!block) {
+      return res.status(403).json({
+        message: "Block not found",
+      });
+    }
 
     // check if this user has permission to block's page
     const isPermitted = await checkPageMembership(block.page, req.user._id);
     if (!isPermitted) {
       return res
-        .status(404)
+        .status(403)
         .json({ message: "Do not have permission to edit page" });
     }
 

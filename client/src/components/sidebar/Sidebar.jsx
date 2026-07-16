@@ -7,6 +7,7 @@ import WorkspaceSwitcher from "./WorkspaceSwitcher";
  * @param {Object} workspace - The workspace object
  * @param {Object[]} pages - The pages array
  * @param {string} selectedPageId - the page that is currently opened in Editor
+ * @param {Boolean} canEdit - whether current user is workspace editor or owner
  * @param {Function} onSelectPage - The function to open a page in Editor
  * @param {Function} onCreatePage - The function to create a page
  *
@@ -15,9 +16,10 @@ import WorkspaceSwitcher from "./WorkspaceSwitcher";
  * Sidebar has onCreatePage since the + button is inside the Sidebar, then Workspace needs Sidebar to call that callback to update pages list
  */
 const Sidebar = ({
-  workspace,
-  pages,
-  selectedPageId,
+  workspace = null,
+  pages = [],
+  selectedPageId = null,
+  canEdit = false,
   onSelectPage,
   onCreatePage,
   onOpenSearch,
@@ -29,14 +31,16 @@ const Sidebar = ({
       {/* Search button to search for pages and blocks within workspace */}
       <SearchButton onOpenSearch={onOpenSearch} />
 
-      {/* New Page button */}
-      <button
-        type="button"
-        className="new-page-button"
-        onClick={() => onCreatePage(null)}
-      >
-        + New Page
-      </button>
+      {/* New Page button, only visible to workspace owner and editor */}
+      {canEdit && (
+        <button
+          type="button"
+          className="new-page-button"
+          onClick={() => onCreatePage(null)}
+        >
+          + New Page
+        </button>
+      )}
 
       {/* Display page tree */}
       <PageTree
@@ -44,6 +48,7 @@ const Sidebar = ({
         selectedPageId={selectedPageId}
         onSelectPage={onSelectPage}
         onCreatePage={onCreatePage}
+        canEdit={canEdit}
       />
     </aside>
   );
