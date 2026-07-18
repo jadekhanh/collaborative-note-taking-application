@@ -4,7 +4,6 @@ const User = require("../models/User");
 
 /**
  * Create a jwt after login or registration
- * @param = userId
  */
 const generateToken = (userId) => {
   return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
@@ -21,22 +20,28 @@ const register = async (req, res) => {
     const { username, email, password } = req.body;
 
     // if username, email, or password field is missing
-    if (!username || !email || !password) {
+    if (!username?.trim() || !email?.trim() || !password) {
       // 400 = bad request
       return res
         .status(400)
         .json({ message: "Please fill out all required fields!" });
     }
 
-    // check if a user with this email alreadye exists
-    const existingUser = await User.findOne({ email });
+    // check if a user with this email already exists
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedUsername = username.trim();
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       // 409 = conflict
       return res.status(409).json({ message: "Email already in use" });
     }
 
     // create a new user
-    const user = await User.create({ username, email, password });
+    const user = await User.create({
+      username: normalizedUsername,
+      email: normalizedEmail,
+      password,
+    });
 
     // generates token
     const token = generateToken(user._id);
@@ -61,15 +66,15 @@ const register = async (req, res) => {
 };
 
 /**
- * Login a user
+ * Login an existing user
  */
 const login = async (req, res) => {
   try {
-    // extract email and password from req.body
+    // extract email and password from req body
     const { email, password } = req.body;
 
     // if email or password field is missing
-    if (!email || !password) {
+    if (!email?.trim() || !password) {
       // 400 = bad request
       return res
         .status(400)
@@ -77,7 +82,10 @@ const login = async (req, res) => {
     }
 
     // get user from email
-    const user = await User.findOne({ email }).select("+password"); // include password
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail }).select(
+      "+password",
+    ); // include password
 
     // if user with this email doesn't exist
     if (!user) {
@@ -114,11 +122,18 @@ const login = async (req, res) => {
 };
 
 /**
- * Returns a logged-in user
+ * Returns currently authenticated user
  */
 const getMe = async (req, res) => {
   // during protect() middleware, req saves user field
-  return res.status(200).json({ user: req.user });
+  return res.status(200).json({
+    user: {
+      id: req.user._id,
+      username: req.user.username,
+      email: req.user.email,
+      avatarUrl: req.user.avatarUrl,
+    },
+  });
 };
 
 // exports 3 functions

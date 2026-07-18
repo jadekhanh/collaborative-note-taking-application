@@ -1,30 +1,111 @@
 const CommentThread = require("../models/CommentThread");
 const Page = require("../models/Page");
 const PagePermission = require("../models/Permission");
+const Workspace = require("../models/Workspace");
 
 /**
- * Check if current user has access to page
+ * A user can access a page in 3 ways:
+ * - own the page
+ * - someone shares the page with them
+ * - belong to the workspace
+ *
+ * Example:
+ * workspace role = viewer
+ * page-specific permission = editor
+ * -> the person has editor permission
  */
-const checkPageMembership = async (pageId, userId) => {
-  // get page
-  const page = await Page.findById(pageId);
+const ROLE_PRIORITY = {
+  VIEWER: 1,
+  EDITOR: 2,
+  OWNER: 3,
+};
 
-  // check if this user is the page's owner
-  if (userId === page.owner.toString()) {
+/**
+ * Get the user's role inside the workspace
+ */
+const getWorkspaceRole = async (workspaceId, userId) => {
+  // get workspace
+  const workspace = await Workspace.findById(workspaceId);
+  if (!workspace) {
+    return null;
+  }
+
+  // find the member inside workspace that has matching user id
+  const member = workspace.members.find(
+    (workspaceMember) => workspaceMember.user.toString() === userId.toString(),
+  );
+
+  // return the role of this user
+  // null if this user does not belong to the workspace
+  return member?.role || null;
+};
+
+/**
+ * Get the user's role inside the page
+ */
+const getPageRole = async (page, userId) => {
+  // if this person is the page owner
+  if (page.owner.toString() === userId.toString()) {
+    return "OWNER";
+  }
+
+  // get user's page permission
+  const pagePermission = await PagePermission.findOne({
+    page: page._id,
+    user: userId,
+  });
+
+  // get user's workspace role
+  const workspaceRole = await getWorkspaceRole(page.workspace, userId);
+
+  // get user's final page role
+  let finalPageRole = null;
+
+  // if this user has page permission, than it is their final page role
+  if (pagePermission?.role) {
+    finalPageRole = pagePermission.role;
+  }
+
+  // if this user has workspace role
+  if (workspaceRole) {
+    // if they don't have page role yet,
+    if (!finalPageRole) {
+      // if this user is the workspace owner, assign them page editor
+      if (workspaceRole == "OWNER") {
+        finalPageRole = "EDITOR";
+      }
+      // if this user is workspace viewer or editor, assign them as is
+      else {
+        finalPageRole = workspaceRole;
+      }
+    }
+    // if they have a page role
+    else {
+      // if their workspace role is higher than page role
+      if (ROLE_PRIORITY[workspaceRole] > ROLE_PRIORITY[finalPageRole]) {
+        // if this user is the workspace owner, assign them page editor
+        if (workspaceRole == "OWNER") {
+          finalPageRole = "EDITOR";
+        }
+        // if this user is workspace viewer or editor, assign them as is
+        else {
+          finalPageRole = workspaceRole;
+        }
+      }
+    }
+  }
+
+  return finalPageRole;
+};
+
+/**
+ * Check if user can edit page
+ */
+const canEditPage = (pageAccessRole) => {
+  if (pageAccessRole === "OWNER" || pageAccessRole === "EDITOR") {
     return true;
   }
-
-  // check if this user has permission to this page as owner or editor
-  // only viewer cannot modify a page
-  const isPermitted = await PagePermission.findOne({
-    page: pageId,
-    user: userId,
-    role: { $in: ["OWNER", "EDITOR"] },
-  });
-  if (!isPermitted) {
-    return false;
-  }
-  return true;
+  return false;
 };
 
 /**
@@ -43,9 +124,15 @@ const createCommentThread = async (req, res) => {
       });
     }
 
-    // check if current user can access this page
-    const isPermitted = await checkPageMembership(pageId, req.user._id);
-    if (!isPermitted) {
+    // get page
+    const page = await Page.findById(pageId);
+    if (!page) {
+      return res.status(404).json({ message: "Page not found" });
+    }
+
+    // check if this user has editor access to page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!accessRole) {
       return res.status(403).json({
         message: "Do not have access to this page",
       });
@@ -59,7 +146,10 @@ const createCommentThread = async (req, res) => {
       content: content.trim(),
     });
 
+    // save thread
+    await thread.save();
     await thread.populate("author", "username email");
+    await thread.populate("replies.author", "username email");
 
     return res
       .status(201)
@@ -80,9 +170,15 @@ const getCommentThreadsByPage = async (req, res) => {
     // get pageId from req params
     const { pageId } = req.params;
 
-    // check if current user can access this page
-    const isPermitted = await checkPageMembership(pageId, req.user._id);
-    if (!isPermitted) {
+    // get page
+    const page = await Page.findById(pageId);
+    if (!page) {
+      return res.status(404).json({ message: "Page not found" });
+    }
+
+    // check if this user is have access to the page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!accessRole) {
       return res.status(403).json({
         message: "Do not have access to this page",
       });
@@ -124,16 +220,29 @@ const addReplyToCommentThread = async (req, res) => {
       return res.status(404).json({ message: "Comment thread not found" });
     }
 
-    // check if current user can access this page
-    const isPermitted = await checkPageMembership(thread.page, req.user._id);
-    if (!isPermitted) {
+    // get page
+    const page = await Page.findById(thread.page);
+    if (!page) {
+      return res.status(404).json({
+        message: "Page not found",
+      });
+    }
+
+    // check if this user has editor access to page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!accessRole) {
       return res.status(403).json({
         message: "Do not have access to this page",
       });
     }
 
     // add new reply to thread
-    thread.replies.push({ author: req.user._id, content: content });
+    thread.replies.push({
+      author: req.user._id,
+      content: content.trim(),
+    });
+
+    // save thread
     await thread.save();
     await thread.populate("author", "username email");
     await thread.populate("replies.author", "username email");
@@ -170,9 +279,17 @@ const updateCommentThread = async (req, res) => {
       return res.status(404).json({ message: "Comment thread not found" });
     }
 
-    // check if current user can access this page
-    const isPermitted = await checkPageMembership(thread.page, req.user._id);
-    if (!isPermitted) {
+    // get page
+    const page = await Page.findById(thread.page);
+    if (!page) {
+      return res.status(404).json({
+        message: "Page not found",
+      });
+    }
+
+    // check if this user has editor access to page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!accessRole) {
       return res.status(403).json({
         message: "Do not have access to this page",
       });
@@ -186,8 +303,12 @@ const updateCommentThread = async (req, res) => {
     }
 
     // update comment thread content
-    thread.content = content;
+    thread.content = content.trim();
+
+    // save thread
     await thread.save();
+    await thread.populate("author", "username email");
+    await thread.populate("replies.author", "username email");
 
     return res
       .status(200)
@@ -214,17 +335,29 @@ const resolveCommentThread = async (req, res) => {
       return res.status(404).json({ message: "Comment thread not found" });
     }
 
-    // check if current user can access this page
-    const isPermitted = await checkPageMembership(thread.page, req.user._id);
-    if (!isPermitted) {
+    // get page
+    const page = await Page.findById(thread.page);
+    if (!page) {
+      return res.status(404).json({
+        message: "Page not found",
+      });
+    }
+
+    // check if this user has editor access to page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!canEditPage(accessRole)) {
       return res.status(403).json({
-        message: "Do not have access to this page",
+        message: "Editor access is required",
       });
     }
 
     // resolve comment thread
     thread.isResolved = true;
+
+    // save thread
     await thread.save();
+    await thread.populate("author", "username email");
+    await thread.populate("replies.author", "username email");
 
     return res
       .status(200)
@@ -251,9 +384,17 @@ const deleteCommentThread = async (req, res) => {
       return res.status(404).json({ message: "Comment thread not found" });
     }
 
-    // check if current user can access this page
-    const isPermitted = await checkPageMembership(thread.page, req.user._id);
-    if (!isPermitted) {
+    // get page
+    const page = await Page.findById(thread.page);
+    if (!page) {
+      return res.status(404).json({
+        message: "Page not found",
+      });
+    }
+
+    // check if this user has editor access to page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!accessRole) {
       return res.status(403).json({
         message: "Do not have access to this page",
       });
@@ -296,20 +437,23 @@ const editReply = async (req, res) => {
       });
     }
 
-    // if content is empty
-    if (!content.trim()) {
-      return res.status(400).json({ message: "Missing reply content" });
-    }
-
     // get thread
     const thread = await CommentThread.findById(threadId);
     if (!thread) {
       return res.status(404).json({ message: "Comment thread not found" });
     }
 
-    // check if current user can access this page
-    const isPermitted = await checkPageMembership(thread.page, req.user._id);
-    if (!isPermitted) {
+    // get page
+    const page = await Page.findById(thread.page);
+    if (!page) {
+      return res.status(404).json({
+        message: "Page not found",
+      });
+    }
+
+    // check if this user has editor access to page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!accessRole) {
       return res.status(403).json({
         message: "Do not have access to this page",
       });
@@ -363,9 +507,17 @@ const deleteReply = async (req, res) => {
       return res.status(404).json({ message: "Comment thread not found" });
     }
 
-    // check if current user can access this page
-    const isPermitted = await checkPageMembership(thread.page, req.user._id);
-    if (!isPermitted) {
+    // get page
+    const page = await Page.findById(thread.page);
+    if (!page) {
+      return res.status(404).json({
+        message: "Page not found",
+      });
+    }
+
+    // check if this user has editor access to page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!accessRole) {
       return res.status(403).json({
         message: "Do not have access to this page",
       });

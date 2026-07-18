@@ -1,33 +1,126 @@
 const Attachment = require("../models/Attachment");
 const Page = require("../models/Page");
 const PagePermission = require("../models/Permission");
+const Workspace = require("../models/Workspace");
+const Block = require("../models/Block");
 
 /**
- * Check if this user has permission to page
+ * A user can access a page in 3 ways:
+ * - own the page
+ * - someone shares the page with them
+ * - belong to the workspace
+ *
+ * Example:
+ * workspace role = viewer
+ * page-specific permission = editor
+ * -> the person has editor permission
  */
-const checkPageMembership = async (pageId, userId) => {
-  // get page
+const ROLE_PRIORITY = {
+  VIEWER: 1,
+  EDITOR: 2,
+  OWNER: 3,
+};
+
+/**
+ * Get the user's role inside the workspace
+ */
+const getWorkspaceRole = async (workspaceId, userId) => {
+  // get workspace
+  const workspace = await Workspace.findById(workspaceId);
+  if (!workspace) {
+    return null;
+  }
+
+  // find the member inside workspace that has matching user id
+  const member = workspace.members.find(
+    (workspaceMember) => workspaceMember.user.toString() === userId.toString(),
+  );
+
+  // return the role of this user
+  // null if this user does not belong to the workspace
+  return member?.role || null;
+};
+
+/**
+ * Get the user's role inside the page
+ */
+const getPageRole = async (pageId, userId) => {
+  // get the page whose access is being checked
   const page = await Page.findById(pageId);
   if (!page) {
-    return false;
+    return null;
   }
 
-  // check if this user is the page's owner
-  if (userId.toString() === page.owner.toString()) {
+  // page owner always has OWNER access
+  if (page.owner.toString() === userId.toString()) {
+    return "OWNER";
+  }
+
+  // get user's page permission
+  const pagePermission = await PagePermission.findOne({
+    page: page._id,
+    user: userId,
+  });
+
+  // get user's workspace role
+  const workspaceRole = await getWorkspaceRole(page.workspace, userId);
+
+  // get user's final page role
+  let finalPageRole = null;
+
+  // if this user has page permission, than it is their final page role
+  if (pagePermission?.role) {
+    finalPageRole = pagePermission.role;
+  }
+
+  // if this user has workspace role
+  if (workspaceRole) {
+    // if they don't have page role yet,
+    if (!finalPageRole) {
+      // if this user is the workspace owner, assign them page editor
+      if (workspaceRole == "OWNER") {
+        finalPageRole = "EDITOR";
+      }
+      // if this user is workspace viewer or editor, assign them as is
+      else {
+        finalPageRole = workspaceRole;
+      }
+    }
+    // if they have a page role
+    else {
+      // if their workspace role is higher than page role
+      if (ROLE_PRIORITY[workspaceRole] > ROLE_PRIORITY[finalPageRole]) {
+        // if this user is the workspace owner, assign them page editor
+        if (workspaceRole == "OWNER") {
+          finalPageRole = "EDITOR";
+        }
+        // if this user is workspace viewer or editor, assign them as is
+        else {
+          finalPageRole = workspaceRole;
+        }
+      }
+    }
+  }
+
+  return finalPageRole;
+};
+
+/**
+ * Check if user can edit page
+ */
+const canEditPage = (pageAccessRole) => {
+  if (pageAccessRole === "OWNER" || pageAccessRole === "EDITOR") {
     return true;
   }
+  return false;
+};
 
-  // check if this user has permission to this page as owner or editor
-  // only viewer cannot modify a page
-  const isPermitted = await PagePermission.findOne({
-    page: pageId,
-    user: userId,
-    role: { $in: ["OWNER", "EDITOR"] },
-  });
-  if (!isPermitted) {
-    return false;
-  }
-  return true;
+/**
+ * Check if the user may view the page
+ * The user has to be page's OWNER, EDITOR, or VIEWER, and cannot be null (which means they might be a registered user but does not belong to the page)
+ */
+const canAccessPage = (pageAccessRole) => {
+  return Boolean(pageAccessRole);
 };
 
 /**
@@ -45,19 +138,37 @@ const createAttachment = async (req, res) => {
       fileSize,
       storageProvider,
     } = req.body;
+    if (!pageId || !fileUrl || !fileName) {
+      return res.status(400).json({
+        message: "pageId, fileUrl, and fileName are required",
+      });
+    }
 
-    // check if this user has permission to create attachment in requested page
-    const isPermitted = await checkPageMembership(pageId, req.user._id);
-    if (!isPermitted) {
+    // get block
+    if (blockId) {
+      const block = await Block.findOne({
+        _id: blockId,
+        page: pageId,
+      });
+      if (!block) {
+        return res.status(400).json({
+          message: "Block does not belong to the requested page",
+        });
+      }
+    }
+
+    // check if this user has editor access to the page
+    const accessRole = await getPageRole(pageId, req.user._id);
+    if (!canEditPage(accessRole)) {
       return res.status(403).json({
-        message: "Do not have permission to the page",
+        message: "Editor access is required to create an attachment",
       });
     }
 
     // create attachment
     const attachment = await Attachment.create({
       page: pageId,
-      block: blockId,
+      block: blockId || null,
       uploadedBy: req.user._id,
       fileUrl: fileUrl,
       fileName: fileName,
@@ -81,6 +192,14 @@ const getAttachmentsByPage = async (req, res) => {
   try {
     // extract pageId from req.params
     const { pageId } = req.params;
+
+    // check if current user has access to the page
+    const accessRole = await getPageRole(pageId, req.user._id);
+    if (!canAccessPage(accessRole)) {
+      return res.status(403).json({
+        message: "Do not have access to this page's attachments",
+      });
+    }
 
     const attachments = await Attachment.find({
       page: pageId,
@@ -110,14 +229,11 @@ const deleteAttachment = async (req, res) => {
       return res.status(404).json({ message: "Attachment not found" });
     }
 
-    // check if this user has permission to modify attachment in requested page
-    const isPermitted = await checkPageMembership(
-      attachment.page,
-      req.user._id,
-    );
-    if (!isPermitted) {
+    // check if this user has editor access to the page
+    const accessRole = await getPageRole(attachment.page, req.user._id);
+    if (!canEditPage(accessRole)) {
       return res.status(403).json({
-        message: "Do not have permission to delete attachment",
+        message: "Editor access is required to delete attachments",
       });
     }
 
@@ -139,6 +255,11 @@ const uploadAttachment = async (req, res) => {
   try {
     // extract pageId and blockId from req body
     const { pageId, blockId } = req.body;
+    if (!pageId) {
+      return res.status(400).json({
+        message: "pageId is required",
+      });
+    }
 
     // if there's no file
     // NOTE: after Multer runs, it adds file property into req which has the following fields: { fieldName, originalName, fileName, destination, path, mimetype, size }
@@ -146,11 +267,24 @@ const uploadAttachment = async (req, res) => {
       return res.status(400).json({ message: "No file uploaded" });
     }
 
-    // check if this user has permission to this page
-    const isPermitted = await checkPageMembership(pageId, req.user._id);
-    if (!isPermitted) {
+    // get block
+    if (blockId) {
+      const block = await Block.findOne({
+        _id: blockId,
+        page: pageId,
+      });
+      if (!block) {
+        return res.status(400).json({
+          message: "Block does not belong to the requested page",
+        });
+      }
+    }
+
+    // check if this user has editor access to this page
+    const accessRole = await getPageRole(pageId, req.user._id);
+    if (!canEditPage(accessRole)) {
       return res.status(403).json({
-        message: "Do not have permission to upload file",
+        message: "Editor access is required to upload files",
       });
     }
 
@@ -163,7 +297,7 @@ const uploadAttachment = async (req, res) => {
     // create attachment
     const attachment = await Attachment.create({
       page: pageId,
-      block: blockId,
+      block: blockId || null,
       uploadedBy: req.user._id,
       fileUrl: fileUrl,
       fileName: req.file.originalname,

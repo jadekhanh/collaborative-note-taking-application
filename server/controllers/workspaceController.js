@@ -165,15 +165,15 @@ const addWorkspaceMember = async (req, res) => {
   try {
     const { workspaceId } = req.params;
     const { email, role } = req.body;
+    if (!email?.trim()) {
+      return res.status(400).json({
+        message: "Email is required",
+      });
+    }
     if (role !== "VIEWER" && role !== "EDITOR") {
       return res.status(400).json({
         message: "Role must be VIEWER or EDITOR",
       });
-    }
-
-    // check if provided email is empty
-    if (!email.trim()) {
-      return res.status(400).json({ message: "Email is required" });
     }
 
     // get workspace
@@ -246,11 +246,6 @@ const updateWorkspaceMemberRole = async (req, res) => {
       return res.status(400).json({
         message: "Role must be VIEWER or EDITOR",
       });
-    }
-
-    // confirm role is either viewer or editor
-    if (role !== "VIEWER" && role !== "EDITOR") {
-      return res.status(400).json({ message: "Role must be EDITOR or VIEWER" });
     }
 
     // get workspace

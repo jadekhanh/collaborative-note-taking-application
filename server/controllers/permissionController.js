@@ -14,6 +14,11 @@ const createPagePermission = async (req, res) => {
     const { pageId } = req.params;
     // get email, role from req body
     const { email, role } = req.body;
+    if (!email?.trim()) {
+      return res.status(400).json({
+        message: "Email is required",
+      });
+    }
     if (role !== "VIEWER" && role !== "EDITOR") {
       return res.status(400).json({
         message: "Role must be VIEWER or EDITOR",
@@ -34,11 +39,16 @@ const createPagePermission = async (req, res) => {
     }
 
     // get invited user with email
-    const invitedUser = await User.findOne({ email });
+    const invitedUser = await User.findOne({
+      email: email.trim().toLowerCase(),
+    });
     if (!invitedUser) {
-      return res
-        .status(404)
-        .json({ message: "User with this email not found" });
+      return res.status(404).json({ message: "User not found" });
+    }
+    if (invitedUser._id.toString() === page.owner.toString()) {
+      return res.status(400).json({
+        message: "The page owner already has owner access",
+      });
     }
 
     // create page permission
@@ -76,16 +86,19 @@ const getPagePermissionsByPage = async (req, res) => {
     // get pageId from req params
     const { pageId } = req.params;
 
-    // check if this person has permission as editor or owner to view all page permissions
-    const isPermitted = await PagePermission.findOne({
-      page: pageId,
-      user: req.user._id,
-      role: { $in: ["OWNER", "EDITOR"] },
-    });
-    if (!isPermitted) {
+    // get page
+    const page = await Page.findById(pageId);
+
+    if (!page) {
+      return res.status(404).json({
+        message: "Page not found",
+      });
+    }
+
+    // only the actual page owner can view and manage sharing permissions
+    if (page.owner.toString() !== req.user._id.toString()) {
       return res.status(403).json({
-        message:
-          "Do not have permission to get all page permissions of requested page",
+        message: "Only the page owner can view sharing permissions",
       });
     }
 
@@ -110,8 +123,8 @@ const getPagePermissionsByPage = async (req, res) => {
  */
 const updatePagePermission = async (req, res) => {
   try {
-    // extract permissionId from req params
-    const { permissionId } = req.params;
+    // extract pageId, permissionId from req params
+    const { pageId, permissionId } = req.params;
     // extract role from req body
     const { role } = req.body;
     if (role !== "VIEWER" && role !== "EDITOR") {
@@ -123,11 +136,31 @@ const updatePagePermission = async (req, res) => {
     // get page permission
     const permission = await PagePermission.findById(permissionId);
     if (!permission) {
-      return res.status(404).json({ message: "Page permission not found" });
+      return res.status(404).json({
+        message: "Page permission not found",
+      });
+    }
+    if (permission.page.toString() !== pageId.toString()) {
+      return res.status(400).json({
+        message: "Permission does not belong to this page",
+      });
+    }
+
+    // get the page belonging to this permission
+    const page = await Page.findById(permission.page);
+    if (!page) {
+      return res.status(404).json({
+        message: "Page not found",
+      });
+    }
+    if (permission.user.toString() === page.owner.toString()) {
+      return res.status(403).json({
+        message: "Cannot change or remove the page owner's permission",
+      });
     }
 
     // only page owner can manage page permission
-    if (permission.page.owner.toString() !== req.user._id.toString()) {
+    if (page.owner.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         message: "Only the page owner can manage sharing permissions",
       });
@@ -157,17 +190,37 @@ const updatePagePermission = async (req, res) => {
  */
 const deletePagePermission = async (req, res) => {
   try {
-    // extract permissionId from req params
-    const { permissionId } = req.params;
+    // extract pageId, permissionId from req params
+    const { pageId, permissionId } = req.params;
 
     // get page permission
     const permission = await PagePermission.findById(permissionId);
     if (!permission) {
-      return res.status(404).json({ message: "Page permission not found" });
+      return res.status(404).json({
+        message: "Page permission not found",
+      });
+    }
+    if (permission.page.toString() !== pageId.toString()) {
+      return res.status(400).json({
+        message: "Permission does not belong to this page",
+      });
+    }
+
+    // get the page belonging to this permission
+    const page = await Page.findById(permission.page);
+    if (!page) {
+      return res.status(404).json({
+        message: "Page not found",
+      });
+    }
+    if (permission.user.toString() === page.owner.toString()) {
+      return res.status(403).json({
+        message: "Cannot change or remove the page owner's permission",
+      });
     }
 
     // only page owner can manage page permission
-    if (permission.page.owner.toString() !== req.user._id.toString()) {
+    if (page.owner.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         message: "Only the page owner can manage sharing permissions",
       });

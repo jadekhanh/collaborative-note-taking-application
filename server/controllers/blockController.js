@@ -1,30 +1,111 @@
 const Block = require("../models/Block");
 const Page = require("../models/Page");
 const PagePermission = require("../models/Permission");
+const Workspace = require("../models/Workspace");
 
 /**
- * Check if current user has access to page
+ * A user can access a page in 3 ways:
+ * - own the page
+ * - someone shares the page with them
+ * - belong to the workspace
+ *
+ * Example:
+ * workspace role = viewer
+ * page-specific permission = editor
+ * -> the person has editor permission
  */
-const checkPageMembership = async (pageId, userId) => {
-  // get page
-  const page = await Page.findById(pageId);
+const ROLE_PRIORITY = {
+  VIEWER: 1,
+  EDITOR: 2,
+  OWNER: 3,
+};
 
-  // check if this user is the page's owner
-  if (userId === page.owner.toString()) {
+/**
+ * Get the user's role inside the workspace
+ */
+const getWorkspaceRole = async (workspaceId, userId) => {
+  // get workspace
+  const workspace = await Workspace.findById(workspaceId);
+  if (!workspace) {
+    return null;
+  }
+
+  // find the member inside workspace that has matching user id
+  const member = workspace.members.find(
+    (workspaceMember) => workspaceMember.user.toString() === userId.toString(),
+  );
+
+  // return the role of this user
+  // null if this user does not belong to the workspace
+  return member?.role || null;
+};
+
+/**
+ * Get the user's role inside the page
+ */
+const getPageRole = async (page, userId) => {
+  // if this person is the page owner
+  if (page.owner.toString() === userId.toString()) {
+    return "OWNER";
+  }
+
+  // get user's page permission
+  const pagePermission = await PagePermission.findOne({
+    page: page._id,
+    user: userId,
+  });
+
+  // get user's workspace role
+  const workspaceRole = await getWorkspaceRole(page.workspace, userId);
+
+  // get user's final page role
+  let finalPageRole = null;
+
+  // if this user has page permission, than it is their final page role
+  if (pagePermission?.role) {
+    finalPageRole = pagePermission.role;
+  }
+
+  // if this user has workspace role
+  if (workspaceRole) {
+    // if they don't have page role yet,
+    if (!finalPageRole) {
+      // if this user is the workspace owner, assign them page editor
+      if (workspaceRole == "OWNER") {
+        finalPageRole = "EDITOR";
+      }
+      // if this user is workspace viewer or editor, assign them as is
+      else {
+        finalPageRole = workspaceRole;
+      }
+    }
+    // if they have a page role
+    else {
+      // if their workspace role is higher than page role
+      if (ROLE_PRIORITY[workspaceRole] > ROLE_PRIORITY[finalPageRole]) {
+        // if this user is the workspace owner, assign them page editor
+        if (workspaceRole == "OWNER") {
+          finalPageRole = "EDITOR";
+        }
+        // if this user is workspace viewer or editor, assign them as is
+        else {
+          finalPageRole = workspaceRole;
+        }
+      }
+    }
+  }
+
+  return finalPageRole;
+};
+
+/**
+ * Check if user can edit page
+ */
+const canEditPage = (pageAccessRole) => {
+  if (pageAccessRole === "OWNER" || pageAccessRole === "EDITOR") {
     return true;
   }
-
-  // check if this user has permission to this page as owner or editor
-  // only viewer cannot modify a page
-  const isPermitted = await PagePermission.findOne({
-    page: pageId,
-    user: userId,
-    role: { $in: ["OWNER", "EDITOR"] },
-  });
-  if (!isPermitted) {
-    return false;
-  }
-  return true;
+  return false;
 };
 
 /**
@@ -34,13 +115,24 @@ const createBlock = async (req, res) => {
   try {
     // extract from req.body
     const { pageId, type, content, order } = req.body;
+    if (!pageId || !type || content === undefined) {
+      return res.status(400).json({
+        message: "pageId, type, and content are required",
+      });
+    }
 
-    // check if this user has permission to block's page
-    const isPermitted = await checkPageMembership(pageId, req.user._id);
-    if (!isPermitted) {
-      return res
-        .status(403)
-        .json({ message: "Do not have permission to edit page" });
+    // get page
+    const page = await Page.findById(pageId);
+    if (!page) {
+      return res.status(404).json({ message: "Page not found" });
+    }
+
+    // check if this user has editor access to page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!canEditPage(accessRole)) {
+      return res.status(403).json({
+        message: "Editor access is required",
+      });
     }
 
     // create a block
@@ -73,31 +165,47 @@ const copyBlock = async (req, res) => {
     // get original block
     const originalBlock = await Block.findById(blockId);
     if (!originalBlock) {
-      return res.status(401).json({ message: "Block not found" });
+      return res.status(404).json({ message: "Block not found" });
     }
 
-    // check if this user has permission to block's page
-    const isPermitted = await checkPageMembership(
-      originalBlock.page,
-      req.user._id,
-    );
-    if (!isPermitted) {
-      return res
-        .status(403)
-        .json({ message: "Do not have permission to page" });
+    // get page
+    const page = await Page.findById(originalBlock.page);
+    if (!page) {
+      return res.status(404).json({
+        message: "Page not found",
+      });
     }
+
+    // check if this user has editor access to page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!canEditPage(accessRole)) {
+      return res.status(403).json({
+        message: "Editor access is required",
+      });
+    }
+
+    // increment orders of later blocks
+    await Block.updateMany(
+      {
+        page: originalBlock.page,
+        order: { $gt: originalBlock.order },
+      },
+      {
+        $inc: { order: 1 },
+      },
+    );
 
     // create duplicated block
     const duplicatedBlock = await Block.create({
       page: originalBlock.page,
       type: originalBlock.type,
       content: originalBlock.content,
-      order: originalBlock.order + 1, // right below the original block
+      order: originalBlock.order + 1,
       createdBy: req.user._id,
       updatedBy: req.user._id,
     });
 
-    res
+    return res
       .status(201)
       .json({ message: "Successfully copy a block", block: duplicatedBlock });
   } catch (error) {
@@ -115,12 +223,18 @@ const getBlocksByPage = async (req, res) => {
     // extract from req params
     const { pageId } = req.params;
 
-    // check if this user has permission to block's page
-    const isPermitted = await checkPageMembership(pageId, req.user._id);
-    if (!isPermitted) {
-      return res
-        .status(403)
-        .json({ message: "Do not have permission to edit page" });
+    // get page
+    const page = await Page.findById(pageId);
+    if (!page) {
+      return res.status(404).json({ message: "Page not found" });
+    }
+
+    // check if this user is have access to the page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!accessRole) {
+      return res.status(403).json({
+        message: "Do not have access to this page",
+      });
     }
 
     // get page's blocks in ascending order
@@ -147,17 +261,23 @@ const updateBlock = async (req, res) => {
     // get block
     const block = await Block.findById(blockId);
     if (!block) {
-      return res.status(403).json({
+      return res.status(404).json({
         message: "Block not found",
       });
     }
 
-    // check if this user has permission to block's page
-    const isPermitted = await checkPageMembership(block.page, req.user._id);
-    if (!isPermitted) {
-      return res
-        .status(403)
-        .json({ message: "Do not have permission to edit page" });
+    // get page
+    const page = await Page.findById(block.page);
+    if (!page) {
+      return res.status(404).json({ message: "Page not found" });
+    }
+
+    // check if this user has editor access to this page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!canEditPage(accessRole)) {
+      return res.status(403).json({
+        message: "Editor access is required",
+      });
     }
 
     // update block fields
@@ -192,22 +312,37 @@ const reorderBlocks = async (req, res) => {
     const { blocks } = req.body;
     const { pageId } = req.params;
 
-    // check if this user has permission to block's page
-    const isPermitted = await checkPageMembership(pageId, req.user._id);
-    if (!isPermitted) {
-      return res
-        .status(403)
-        .json({ message: "Do not have permission to edit page" });
-    }
-
     // make sure blocks is array-formatted
     if (!Array.isArray(blocks)) {
       return res.status(400).json({ message: "Blocks input must be an array" });
     }
 
+    // check if blocks have valid blockId and order
+    for (const block of blocks) {
+      if (!block.blockId || !Number.isInteger(block.order) || block.order < 0) {
+        return res.status(400).json({
+          message: "Each block requires a valid blockId and order",
+        });
+      }
+    }
+
+    // get page
+    const page = await Page.findById(pageId);
+    if (!page) {
+      return res.status(404).json({ message: "Page not found" });
+    }
+
+    // check if this user has editor access to this page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!canEditPage(accessRole)) {
+      return res.status(403).json({
+        message: "Editor access is required",
+      });
+    }
+
     // update each block's order
     for (const block of blocks) {
-      await Block.findOneAndUpdate(
+      const updatedBlock = await Block.findOneAndUpdate(
         {
           _id: block.blockId,
           page: pageId,
@@ -217,6 +352,11 @@ const reorderBlocks = async (req, res) => {
           updatedBy: req.user._id,
         },
       );
+      if (!updatedBlock) {
+        return res.status(400).json({
+          message: "One or more blocks do not belong to this page",
+        });
+      }
     }
 
     return res.status(200).json({ message: "Successfully reorder blocks" });
@@ -238,17 +378,23 @@ const deleteBlock = async (req, res) => {
     // get block
     const block = await Block.findById(blockId);
     if (!block) {
-      return res.status(403).json({
+      return res.status(404).json({
         message: "Block not found",
       });
     }
 
-    // check if this user has permission to block's page
-    const isPermitted = await checkPageMembership(block.page, req.user._id);
-    if (!isPermitted) {
-      return res
-        .status(403)
-        .json({ message: "Do not have permission to edit page" });
+    // get page
+    const page = await Page.findById(block.page);
+    if (!page) {
+      return res.status(404).json({ message: "Page not found" });
+    }
+
+    // check if this user has editor access to this page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!canEditPage(accessRole)) {
+      return res.status(403).json({
+        message: "Editor access is required",
+      });
     }
 
     // delete block
