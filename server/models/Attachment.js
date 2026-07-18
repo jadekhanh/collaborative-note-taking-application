@@ -16,7 +16,7 @@ const attachmentSchema = new mongoose.Schema(
     block: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Block",
-      required: true,
+      default: null,
     },
     // stores MongoDB ID that refers to the User model, not the whole User object
     uploadedBy: {

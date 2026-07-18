@@ -138,7 +138,7 @@ const socketHandler = (io) => {
     });
 
     // listen for frontend event called "permissions-updated" saying permissions are updated
-    socket.on("attachments-updated", ({ pageId, permissions }) => {
+    socket.on("permissions-updated", ({ pageId, permissions }) => {
       // socket sends the full list of updated permissions to everyone in pageId
       socket.to(pageId).emit("receive-permissions-updated", { permissions });
     });

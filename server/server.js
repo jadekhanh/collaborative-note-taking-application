@@ -23,14 +23,14 @@ const server = http.createServer(app);
 
 // create Socket.IO real-time communication server
 const io = new Server(server, {
-    // CORS: browser security mechanism that allows web server to explicitly allows frontend URL stated in .env to interact with server
-    cors: {
-        origin: process.env.CLIENT_URL || "http://localhost:5173",
-        // allowed methods
-        methods: ["GET", "POST", "PUT", "DELETE"],
-        // allow cookies/credentials/authentication to be sent between frontend and backend
-        credentials: true,
-    },
+  // CORS: browser security mechanism that allows web server to explicitly allows frontend URL stated in .env to interact with server
+  cors: {
+    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    // allowed methods
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    // allow cookies/credentials/authentication to be sent between frontend and backend
+    credentials: true,
+  },
 });
 
 // register Socket events
@@ -38,5 +38,5 @@ socketHandler(io);
 
 // start listening on port
 server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-})
+  console.log(`Server running on port ${PORT}`);
+});

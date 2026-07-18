@@ -35,7 +35,6 @@ const blockSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       // empty object
       default: {},
-      trim: true, // removes leading and trailing spaces
     },
     // order of a block inside a page
     order: {
@@ -53,7 +52,7 @@ const blockSchema = new mongoose.Schema(
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      require: true,
+      required: true,
     },
   },
   // automatically creates createdAt and updatedAt

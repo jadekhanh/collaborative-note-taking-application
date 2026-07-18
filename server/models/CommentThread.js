@@ -21,7 +21,7 @@ const replySchema = new mongoose.Schema(
     },
     // automatically create createdAt and updatedAt
   },
-  { timestamp: true },
+  { timestamps: true },
 );
 
 /**
