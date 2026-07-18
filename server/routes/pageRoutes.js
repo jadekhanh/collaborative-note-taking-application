@@ -8,6 +8,7 @@ const {
   archivePage,
   getArchivedPages,
   restorePage,
+  getPagesSharedWithMe,
 } = require("../controllers/pageController");
 const {
   createPagePermission,
@@ -41,6 +42,9 @@ router.delete("/:pageId/permissions/:permissionId", deletePagePermission);
 
 // PUT /api/pages/:pageId
 router.put("/:pageId", updatePage);
+
+// GET /api/pages/shared-with-me
+router.get("/shared-with-me", getPagesSharedWithMe);
 
 // GET /api/pages/:pageId
 router.get("/:pageId", getPageById);

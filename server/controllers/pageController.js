@@ -281,12 +281,12 @@ const getPageById = async (req, res) => {
       });
     }
 
+    // get page blocks in ascending order
+    const blocks = await Block.find({ page: pageId }).sort({ order: 1 });
+
     // Populate fields after authorization succeeds
     await page.populate("workspace", "name");
     await page.populate("owner", "username email");
-
-    // get page blocks in ascending order
-    const blocks = await Block.find({ page: pageId }).sort({ order: 1 });
 
     return res.status(200).json({ page, blocks, accessRole });
   } catch (error) {
@@ -455,6 +455,57 @@ const deletePage = async (req, res) => {
   }
 };
 
+/**
+ * Get pages shared directly with the current user
+ */
+const getPagesSharedWithMe = async (req, res) => {
+  try {
+    // find every direct page permission belonging to the current user
+    const permissions = await PagePermission.find({
+      user: req.user._id,
+      role: { $in: ["VIEWER", "EDITOR"] },
+    })
+      .populate({
+        path: "page",
+        match: {
+          isArchived: false,
+        },
+        populate: [
+          {
+            path: "workspace",
+            select: "name",
+          },
+          {
+            path: "owner",
+            select: "username email",
+          },
+        ],
+      })
+      .sort({ updatedAt: -1 });
+
+    // remove permissions whose page no longer exists or is archived
+    const sharedPages = [];
+
+    for (const permission of permissions) {
+      if (permission.page) {
+        sharedPages.push({
+          page: permission.page,
+          accessRole: permission.role,
+        });
+      }
+    }
+
+    return res.status(200).json({
+      sharedPages,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to load shared pages",
+      error: error.message,
+    });
+  }
+};
+
 // export functions
 module.exports = {
   createPage,
@@ -465,4 +516,5 @@ module.exports = {
   archivePage,
   getArchivedPages,
   restorePage,
+  getPagesSharedWithMe,
 };

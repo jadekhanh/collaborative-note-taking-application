@@ -1,8 +1,14 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useAutosave from "../../hooks/useAutosave";
+import {
+  adjustCursorAfterOperation,
+  applyTextOperation,
+  computeTextOperations,
+} from "../../utils/textOperations";
 import BlockToolbar from "./BlockToolbar";
+import RemoteCarets from "./RemoteCarets";
 
 /**
  * Block component
@@ -20,6 +26,10 @@ import BlockToolbar from "./BlockToolbar";
  * @param onTypingStarted - function from Editor to show typing indicator
  * @param onTypingStopped - function from Editor to stop typing indicator
  * @param onCursorMoved - function from Editor to broadcast cursor position
+ * @param onContentLive - function from Editor to broadcast live block metadata updates
+ * @param onTextOp - function from Editor to broadcast OT text operations
+ * @param onSyncBlock - function from Editor to keep shared block state aligned
+ * @param onRegisterTextOpHandler - function from Editor to register OT handlers
  * @param onUploadFile - function from Editor to upload a file
  * @param: canEdit - boolean if user can edit block (VIEWER cannot)
  * @param: commentCount = 0 = number of comments this block has
@@ -39,6 +49,10 @@ const Block = ({
   onTypingStarted,
   onTypingStopped,
   onCursorMoved,
+  onContentLive,
+  onTextOp,
+  onSyncBlock,
+  onRegisterTextOpHandler,
   onUploadFile,
   canEdit = true,
   commentCount = 0,
@@ -75,50 +89,90 @@ const Block = ({
   const [localType, setLocalType] = useState(block.type);
   // React state that stores the current typing timeout
   const typingTimeoutRef = useRef(null);
+  // Skip overwriting local edits while this block input is focused
+  const isFocusedRef = useRef(false);
+  // Skip autosave when content was applied from a remote live update
+  const skipAutosaveRef = useRef(false);
+  const localInputRef = useRef(null);
+  const [inputElement, setInputElement] = useState(null);
+  const [inputShellElement, setInputShellElement] = useState(null);
   // get block text; if not exists, use ""
   const text = localContent?.text || "";
   // React state that stores indentation level of current block
   const indentLevel = localContent?.indentLevel || 0;
 
   /**
-   * Save current block
+   * Save current block type and content to the database
    */
-  const saveBlock = async () => {
-    // call Editor to update the block with current type and content
-    await onUpdate(block._id, {
-      type: localType,
-      content: localContent,
-    });
-  };
+  const saveBlockPayload = useCallback(
+    async ({ type, content }) => {
+      if (skipAutosaveRef.current) {
+        skipAutosaveRef.current = false;
+        return;
+      }
+
+      await onUpdate(block._id, { type, content });
+    },
+    [block._id, onUpdate],
+  );
+
+  const autosavePayload = useMemo(
+    () => ({ type: localType, content: localContent }),
+    [localType, localContent],
+  );
 
   /**
-   * Autosave this block
-   * Whenever localType or localContent changes, autoSave waits 700ms and then calls saveBlock()
+   * Broadcast non-text block changes (type, uploads, checklist, indent)
+   */
+  const broadcastLiveContent = useCallback(
+    (type, content) => {
+      if (!canEdit || !onContentLive) {
+        return;
+      }
+
+      onContentLive(block._id, { type, content });
+      onSyncBlock?.(block._id, { type, content });
+    },
+    [block._id, canEdit, onContentLive, onSyncBlock],
+  );
+
+  /**
+   * Autosave this block after typing stops
    */
   const blockSaveStatus = useAutosave({
-    value: { type: localType, content: localContent },
-    onSave: saveBlock,
-    delay: 700,
-    enabled: Boolean(block?._id && canEdit), // only save if the block has an ID (prevent saving invalid block)
+    value: autosavePayload,
+    onSave: saveBlockPayload,
+    delay: 800,
+    enabled: canEdit,
   });
 
   /**
-   * Update text inside a block
+   * Update text inside a block and broadcast OT operations
    */
   const updateText = (newText) => {
-    // set React state of current block
-    setLocalContent({
+    const previousText = text;
+    const nextContent = {
       ...localContent,
-      text: newText, // only updates the text field while keeping the rest of localContent
-    });
+      text: newText,
+    };
+    const operations = computeTextOperations(previousText, newText);
+
+    setLocalContent(nextContent);
+    onSyncBlock?.(block._id, { type: localType, content: nextContent });
+
+    if (canEdit && onTextOp) {
+      for (const operation of operations) {
+        onTextOp(block._id, operation);
+      }
+    }
   };
 
   /**
-   * Update block type
+   * Update block type and broadcast immediately
    */
   const updateType = (newType) => {
-    // set React state of block type and displays a different input style (e.g, paragprah -> heading)
     setLocalType(newType);
+    broadcastLiveContent(newType, localContent);
   };
 
   /**
@@ -149,6 +203,89 @@ const Block = ({
       }
     }, 1000);
   };
+
+  /**
+   * Apply remote OT text operations while this user is editing the same block
+   */
+  useEffect(() => {
+    if (!onRegisterTextOpHandler) {
+      return undefined;
+    }
+
+    return onRegisterTextOpHandler(block._id, (operation) => {
+      skipAutosaveRef.current = true;
+
+      setLocalContent((previousContent) => {
+        const nextText = applyTextOperation(
+          previousContent?.text || "",
+          operation,
+        );
+        const nextContent = { ...previousContent, text: nextText };
+
+        onSyncBlock?.(block._id, {
+          type: localType,
+          content: nextContent,
+        });
+
+        return nextContent;
+      });
+
+      const input = inputRef?.current;
+      if (isFocusedRef.current && input) {
+        const nextCursor = adjustCursorAfterOperation(
+          input.selectionStart ?? 0,
+          operation,
+        );
+
+        requestAnimationFrame(() => {
+          input.setSelectionRange(nextCursor, nextCursor);
+        });
+      }
+    });
+  }, [block._id, localType, onRegisterTextOpHandler, onSyncBlock, inputRef]);
+
+  /**
+   * Apply remote block metadata updates (type, uploads, checklist, indent)
+   */
+  /* eslint-disable react-hooks/set-state-in-effect -- sync remote socket block metadata into local editor state */
+  useEffect(() => {
+    const remoteContent = block.content || {};
+
+    const getMetadata = (content) => {
+      const metadata = { ...content };
+      delete metadata.text;
+      return metadata;
+    };
+
+    if (isFocusedRef.current) {
+      if (block.type !== localType) {
+        skipAutosaveRef.current = true;
+        setLocalType(block.type);
+        setLocalContent(remoteContent);
+        return;
+      }
+
+      if (
+        JSON.stringify(getMetadata(remoteContent)) !==
+        JSON.stringify(getMetadata(localContent || {}))
+      ) {
+        skipAutosaveRef.current = true;
+        setLocalContent({
+          ...remoteContent,
+          text: localContent?.text ?? "",
+        });
+      }
+
+      return;
+    }
+
+    skipAutosaveRef.current = true;
+    setLocalContent(remoteContent);
+    setLocalType(block.type);
+    // Sync remote socket updates into local editing state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to server block snapshots
+  }, [block._id, block.content, block.type]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   /**
    * Run this effect when this block component is removed
@@ -204,12 +341,15 @@ const Block = ({
 
     // if newText.trim() = block type, set block type and content
     if (commands[newText.trim()]) {
-      setLocalType(commands[newText.trim()]);
-      // keep other block contents, reset text section only
-      setLocalContent({
+      const nextType = commands[newText.trim()];
+      const nextContent = {
         ...localContent,
         text: "",
-      });
+      };
+
+      setLocalType(nextType);
+      setLocalContent(nextContent);
+      broadcastLiveContent(nextType, nextContent);
       return;
     }
 
@@ -258,13 +398,13 @@ const Block = ({
     if (event.key === "Tab" && !event.shiftKey) {
       event.preventDefault();
 
-      // update the block content's indent level
-      setLocalContent({
+      const nextContent = {
         ...localContent,
-
-        // increase indent level of the block
         indentLevel: indentLevel + 1,
-      });
+      };
+
+      setLocalContent(nextContent);
+      broadcastLiveContent(localType, nextContent);
 
       // save new indent level to backend
       await onUpdateIndent(block._id, indentLevel + 1);
@@ -276,13 +416,13 @@ const Block = ({
     if (event.key === "Tab" && event.shiftKey) {
       event.preventDefault();
 
-      // update the block content's indent level
-      setLocalContent({
+      const nextContent = {
         ...localContent,
+        indentLevel: Math.max(indentLevel - 1, 0),
+      };
 
-        // decrease indent level of the block
-        indentLevel: Math.max(indentLevel - 1, 0), // cannot go below 0
-      });
+      setLocalContent(nextContent);
+      broadcastLiveContent(localType, nextContent);
 
       // save new indent level to backend
       await onUpdateIndent(block._id, indentLevel - 1);
@@ -312,27 +452,50 @@ const Block = ({
     }
 
     // update React to display uploaded file
-    setLocalContent({
-      // copy previous content
+    const nextContent = {
       ...localContent,
-      // add uploaded file
       url: uploadedFile.fileUrl,
       fileName: uploadedFile.fileName,
       fileSize: uploadedFile.fileSize,
       fileType: uploadedFile.fileType,
-    });
+    };
+
+    setLocalContent(nextContent);
+    broadcastLiveContent(localType, nextContent);
   };
 
   /**
    * Handle user input events
    */
+  const handleFocus = (event) => {
+    isFocusedRef.current = true;
+    handleCursorChange(event);
+  };
+
+  const handleBlur = () => {
+    isFocusedRef.current = false;
+  };
+
+  const setInputRef = useCallback(
+    (element) => {
+      localInputRef.current = element;
+      setInputElement(element);
+
+      if (inputRef) {
+        inputRef(element);
+      }
+    },
+    [inputRef],
+  );
+
   const sharedInputProps = {
-    ref: inputRef, // direct pointer to the actual HTML element so that BlockList have access to Block's <textarea> so BlockList can call .focus() as we move keyboard focus when creating/deleting blocks
+    ref: setInputRef,
     onKeyDown: handleKeyboardShortcuts, // user types a keyboard shortcuts (Enter, Tab, Shift + Tab, Backspace)
     onKeyUp: handleCursorChange, // user types a key
     onClick: handleCursorChange, // user clicks somewhere
     onSelect: handleCursorChange, // user highlights a text
-    onFocus: handleCursorChange, // input receives keyboard focus
+    onFocus: handleFocus, // input receives keyboard focus
+    onBlur: handleBlur,
   };
 
   const renderBlockInput = () => {
@@ -395,12 +558,15 @@ const Block = ({
               type="checkbox"
               disabled={!canEdit} // disable input for VIEWERS
               checked={localContent?.checked || false}
-              onChange={(event) =>
-                setLocalContent({
+              onChange={(event) => {
+                const nextContent = {
                   ...localContent,
                   checked: event.target.checked,
-                })
-              }
+                };
+
+                setLocalContent(nextContent);
+                broadcastLiveContent(localType, nextContent);
+              }}
             />
 
             <input
@@ -458,13 +624,15 @@ const Block = ({
                   <input
                     type="text" // text input
                     value={localContent.alt || ""} // image description
-                    onChange={(event) =>
-                      // update text whenever user types
-                      setLocalContent({
-                        ...localContent, // keep other fields: url, filename, etc.
-                        alt: event.target.value, // replace only text
-                      })
-                    }
+                    onChange={(event) => {
+                      const nextContent = {
+                        ...localContent,
+                        alt: event.target.value,
+                      };
+
+                      setLocalContent(nextContent);
+                      broadcastLiveContent(localType, nextContent);
+                    }}
                     placeholder="Image description" // hint text
                   />
                 )}
@@ -544,18 +712,6 @@ const Block = ({
       }}
       className="block"
     >
-      {/* display other users' cursor positions inside this block */}
-      {remoteCursors.length > 0 && (
-        <div className="inline-remote-cursors">
-          {remoteCursors.map((remoteCursor) => (
-            <span key={remoteCursor.user._id} className="inline-remote-cursor">
-              {remoteCursor.user.username} is editing at character{" "}
-              {remoteCursor.cursor.cursorPosition}
-            </span>
-          ))}
-        </div>
-      )}
-
       <div className="block-controls">
         {/* Only editors and owners may drag blocks */}
         {canEdit && (
@@ -603,7 +759,18 @@ const Block = ({
         )}
       </div>
 
-      {renderBlockInput()}
+      <div
+        className="block-input-shell"
+        ref={setInputShellElement}
+      >
+        {renderBlockInput()}
+        <RemoteCarets
+          shellElement={inputShellElement}
+          inputElement={inputElement}
+          remoteCursors={remoteCursors}
+          text={text}
+        />
+      </div>
     </div>
   );
 };

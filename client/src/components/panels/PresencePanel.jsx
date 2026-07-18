@@ -1,6 +1,8 @@
 /**
  * A panel displayed at the top of Editor to displays collaborators currently connected to the page and users who are actively typing
  */
+const getUserId = (user) => user?._id || user?.id || user?.userId;
+
 const PresencePanel = ({ activeUsers, typingUsers }) => {
   return (
     <section className="presence-panel">
@@ -17,12 +19,13 @@ const PresencePanel = ({ activeUsers, typingUsers }) => {
         ) : (
           activeUsers.map((activeUser) => {
             const isTyping = typingUsers.some(
-              (typingUser) => typingUser._id === activeUser._id,
+              (typingUser) =>
+                getUserId(typingUser) === getUserId(activeUser),
             );
 
             return (
               <div
-                key={activeUser.socketId || activeUser._id}
+                key={activeUser.socketId || getUserId(activeUser)}
                 className="presence-user"
               >
                 {/* Simple avatar using the first username letter */}

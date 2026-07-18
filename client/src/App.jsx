@@ -21,6 +21,7 @@ import { useAuth } from "./context/AuthContext";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import SharedPage from "./pages/SharedPage";
 import Workspace from "./pages/Workspace";
 
 // create a ProtectedRoute component
@@ -124,6 +125,15 @@ function App() {
           element={
             <ProtectedRoute>
               <Workspace />
+            </ProtectedRoute>
+          }
+        />
+        {/* Shared Page route: show Shared Page */}
+        <Route
+          path="/pages/:pageId"
+          element={
+            <ProtectedRoute>
+              <SharedPage />
             </ProtectedRoute>
           }
         />

@@ -15,7 +15,7 @@
 import { useEffect, useState } from "react";
 // useNavigate = automatically moves to a new link after login succeeds instead of user clicking the new link to move forward
 import { useNavigate } from "react-router-dom";
-import { api } from "../api/axios";
+import api from "../api/axios";
 import CreateWorkspaceButton from "../components/workspace/CreateWorkspaceButton";
 import UserProfileDropdown from "../components/workspace/UserProfileDropdown";
 import WorkspaceCard from "../components/workspace/WorkspaceCard";
@@ -46,6 +46,8 @@ const Dashboard = () => {
   const [selectedWorkspace, setSelectedWorkspace] = useState(null);
   // set React state for Workspace Members Modal
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
+  // pages shared directly with the current user
+  const [sharedPages, setSharedPages] = useState([]);
 
   /**
    * Get all workspaces request
@@ -66,13 +68,27 @@ const Dashboard = () => {
     }
   };
 
+  /**
+   * Get all pages shared directly with current user
+   */
+  const getSharedPages = async () => {
+    try {
+      const res = await api.get("/pages/shared-with-me");
+
+      setSharedPages(res.data.sharedPages || []);
+    } catch (error) {
+      setError(error.response?.data?.message || "Failed to load shared pages");
+    }
+  };
+
   // useEffect() = run the following code (getWorkspaces()) whenever the component loads or when specified dependencies change
   useEffect(() => {
-    const loadWorkspaces = async () => {
-      await getWorkspaces();
+    const loadDashboard = async () => {
+      // inside Dashboard, load all workspaces and pages shared with current user
+      await Promise.all([getWorkspaces(), getSharedPages()]);
     };
 
-    loadWorkspaces();
+    loadDashboard();
   }, []);
 
   /**
@@ -234,6 +250,28 @@ const Dashboard = () => {
     setSelectedWorkspace(updatedWorkspace);
   };
 
+  // seperate owned and shared workspaces
+  const currentUserId = user?._id || user?.id;
+  const ownedWorkspaces = workspaces.filter((workspace) => {
+    const ownerId = workspace.owner?._id || workspace.owner;
+    return ownerId?.toString() === currentUserId?.toString();
+  });
+  const sharedWorkspaces = workspaces.filter((workspace) => {
+    const ownerId = workspace.owner?._id || workspace.owner;
+    return ownerId?.toString() !== currentUserId?.toString();
+  });
+
+  // find user's role inside the workspace
+  const getCurrentUserWorkspaceRole = (workspace) => {
+    const member = workspace.members?.find((member) => {
+      const memberId = member.user?._id || member.user;
+
+      return memberId?.toString() === currentUserId?.toString();
+    });
+
+    return member?.role || null;
+  };
+
   // return UI
   return (
     <div className="dashboard-page">
@@ -254,29 +292,81 @@ const Dashboard = () => {
         onCreateWorkspace={handleCreateWorkspace}
       />
 
-      <div className="workspace-grid">
-        {workspaces.map((workspace) => {
-          // Current authenticated user's ID.
-          const currentUserId = user?._id || user?.id;
-          // Workspace owner may be a populated user object or a plain ID.
-          const workspaceOwnerId = workspace.owner?._id || workspace.owner;
-          // Check whether the current user owns this specific workspace.
-          const isOwner =
-            Boolean(currentUserId && workspaceOwnerId) &&
-            currentUserId.toString() === workspaceOwnerId.toString();
-          return (
-            <WorkspaceCard
-              key={workspace._id}
-              workspace={workspace}
-              isOwner={isOwner}
-              onOpen={(workspaceId) => navigate(`/workspaces/${workspaceId}`)}
-              onManageMembers={handleOpenMembers}
-              onRename={handleRenameWorkspace}
-              onDelete={handleDeleteWorkspace}
-            />
-          );
-        })}
-      </div>
+      <section className="dashboard-section">
+        <h2>My workspaces</h2>
+
+        {ownedWorkspaces.length === 0 ? (
+          <p>You do not own any workspaces yet.</p>
+        ) : (
+          <div className="workspace-grid">
+            {ownedWorkspaces.map((workspace) => (
+              <WorkspaceCard
+                key={workspace._id}
+                workspace={workspace}
+                isOwner={true}
+                onOpen={(workspaceId) => navigate(`/workspaces/${workspaceId}`)}
+                onManageMembers={handleOpenMembers}
+                onRename={handleRenameWorkspace}
+                onDelete={handleDeleteWorkspace}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="dashboard-section">
+        <h2>Shared workspaces</h2>
+
+        {sharedWorkspaces.length === 0 ? (
+          <p>No workspaces have been shared with you.</p>
+        ) : (
+          <div className="workspace-grid">
+            {sharedWorkspaces.map((workspace) => (
+              <WorkspaceCard
+                key={workspace._id}
+                workspace={workspace}
+                isOwner={false}
+                currentRole={getCurrentUserWorkspaceRole(workspace)}
+                onOpen={(workspaceId) => navigate(`/workspaces/${workspaceId}`)}
+                onManageMembers={handleOpenMembers}
+                onRename={handleRenameWorkspace}
+                onDelete={handleDeleteWorkspace}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="dashboard-section">
+        <h2>Shared pages</h2>
+
+        {sharedPages.length === 0 ? (
+          <p>No pages have been shared with you.</p>
+        ) : (
+          <div className="shared-page-grid">
+            {sharedPages.map(({ page, accessRole }) => (
+              <button
+                key={page._id}
+                type="button"
+                className="shared-page-card"
+                onClick={() => navigate(`/pages/${page._id}`)}
+              >
+                <div>
+                  <strong>
+                    {page.icon || "📄"} {page.title || "Untitled"}
+                  </strong>
+
+                  <p>{page.owner?.username || "Unknown owner"}</p>
+
+                  <p>{page.workspace?.name || "Unknown workspace"}</p>
+                </div>
+
+                <span>{accessRole}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
       <WorkspaceMembersModal
         workspaceId={selectedWorkspace?._id}
         isOpen={isMembersModalOpen}

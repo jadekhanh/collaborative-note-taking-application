@@ -29,11 +29,19 @@ app.use(
     origin: process.env.CLIENT_URL || "http://localhost:5173",
     // allow cookies and JWT
     credentials: true,
+    // allow these types of methods
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    // allow these types of headers
+    allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
 
 // allows the app to understands JSON
 app.use(express.json());
+
+// allows server read url-encoded form data sent in req body
+app.use(express.urlencoded({ extended: true }));
+
 // allows server to serve static files like images/pdfs from local folder "uploads"
 app.use("/uploads", express.static("uploads"));
 

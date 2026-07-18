@@ -18,8 +18,8 @@ export const AuthProvider = ({ children }) => {
   // at first, user = null since use haven't logged in
   const [user, setUser] = useState(null);
   // later, to update loading, do loading = setLoading(newLoading)
-  // at first, loading = true since we haven't checked whether the user is logged in
-  const [loading, setLoading] = useState(true);
+  // at first, avoid initializing loading based on whether a token exists
+  const [loading, setLoading] = useState(() => !!localStorage.getItem("token"));
 
   // typedData = { username, email, password }
   const register = async (typedData) => {

@@ -59,9 +59,12 @@ const socketHandler = (io) => {
 
       // inside this page's user map, store this socket
       // key = socket.id, value = { socketId, userId, username, avatarUrl }
+      const userId = user.id || user._id;
+
       activeUsersByPage.get(pageId).set(socket.id, {
         socketId: socket.id,
-        userId: user.id,
+        userId,
+        _id: userId,
         username: user.username,
         avatarUrl: user.avatarUrl || "",
       });
@@ -111,6 +114,32 @@ const socketHandler = (io) => {
     socket.on("block-updated", ({ pageId, block }) => {
       // socket sends the updated block to everyone in the page
       socket.to(pageId).emit("receive-block-updated", { block });
+    });
+
+    // live keystroke-level block content while someone is still typing (before DB autosave)
+    socket.on("block-content-live", ({ pageId, blockId, type, content }) => {
+      socket.to(pageId).emit("receive-block-content-live", {
+        blockId,
+        type,
+        content,
+      });
+    });
+
+    // OT text operations for same-block concurrent editing
+    socket.on("block-text-op", ({ pageId, blockId, op, userId }) => {
+      socket.to(pageId).emit("receive-block-text-op", {
+        blockId,
+        op,
+        userId,
+      });
+    });
+
+    // live page title while someone is still typing (before DB autosave)
+    socket.on("page-title-live", ({ pageId, title, userId }) => {
+      socket.to(pageId).emit("receive-page-title-live", {
+        title,
+        userId,
+      });
     });
 
     // listen for frontend event called "block-deleted" saying a block is deleted

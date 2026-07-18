@@ -199,12 +199,6 @@ button {
   overflow-y: auto;
 }
 
-/* Sidebar header */
-.sidebar-header h2 {
-  margin: 0 0 16px;
-  font-size: 18px;
-}
-
 /* New Page button */
 .new-page-button {
   width: 100%;
@@ -214,29 +208,6 @@ button {
   background: #222;
   color: white;
   margin-bottom: 16px;
-}
-
-/* Sidebar */
-.sidebar-page {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-/* Sidebar selected pages */
-.sidebar-page:hover,
-.sidebar-page.active {
-  background: #f7e5ec;
-}
-
-/* Pages on Sidebar */
-.sidebar-page button {
-  margin-left: auto;
-  border: none;
-  background: transparent;
 }
 
 /* Empty sidebar */
@@ -250,14 +221,14 @@ button {
   margin: 0 auto;
 }
 
-/* Page action buttons and Add Block button */
-.editor-actions button,
+/* Add Block button */
 .add-block-button {
   padding: 8px 12px;
   border: none;
   border-radius: 8px;
   background: #f7e5ec;
   color: white;
+  margin-top: 16px;
 }
 
 /* Page title */
@@ -273,7 +244,9 @@ button {
 
 /* Block */
 .block {
+  position: relative;
   margin-bottom: 14px;
+  background: transparent;
 }
 
 /* Block controls */
@@ -335,20 +308,6 @@ button {
   display: flex;
   gap: 8px;
   align-items: center;
-}
-
-/* Button to add block */
-.add-block-button {
-  margin-top: 16px;
-}
-
-/* Presence bar that displays active users inside page */
-.presence-bar {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-  color: #555;
-  font-size: 14px;
 }
 
 /* Search and Version modals backdrop */
@@ -437,27 +396,6 @@ button {
 /* Version card p */
 .version-card p {
   margin: 4px 0;
-}
-
-/* Search button for Search modal */
-.search-button {
-  position: fixed;
-  top: 16px;
-  right: 24px;
-  z-index: 50;
-  padding: 8px 12px;
-  border: none;
-  border-radius: 8px;
-  background: #222;
-  color: white;
-}
-
-/* Editor actions buttons */
-.editor-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-bottom: 16px;
 }
 
 /* Comments panel */
@@ -601,11 +539,6 @@ button {
   cursor: grabbing;
 }
 
-/* Block */
-.block {
-  background: transparent;
-}
-
 /* Attachment panel */
 .attachments-panel {
   position: fixed;
@@ -672,34 +605,62 @@ button {
   border-radius: 6px;
 }
 
-.remote-cursors {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-}
-
-.remote-cursor {
-  font-size: 12px;
-  background: #eef2ff;
-  color: #333;
-  padding: 5px 8px;
-  border-radius: 999px;
-}
-
-.block {
+.block-input-shell {
   position: relative;
-  background: transparent;
+  overflow: visible;
 }
 
-.inline-remote-cursor {
-  display: inline-block;
-  font-size: 12px;
-  background: #eef2ff;
-  color: #333;
-  padding: 4px 8px;
-  border-radius: 999px;
-  margin-bottom: 4px;
+.remote-carets-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 2;
+}
+
+.remote-caret {
+  position: absolute;
+  transform: translateX(-1px);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.remote-caret-line {
+  display: block;
+  width: 2px;
+  background: var(--remote-caret-color);
+  animation: remote-caret-blink 1s step-end infinite;
+}
+
+.remote-caret-bubble {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--remote-caret-color);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+@keyframes remote-caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+
+  50%,
+  100% {
+    opacity: 0;
+  }
 }
 
 .floating-archive-button {

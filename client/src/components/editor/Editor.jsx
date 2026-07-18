@@ -1,9 +1,10 @@
 import { arrayMove } from "@dnd-kit/sortable";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 import { useSocket } from "../../context/SocketContext";
 import useAutosave from "../../hooks/useAutosave";
+import { applyTextOperation } from "../../utils/textOperations";
 import ShareModal from "../modals/ShareModal";
 import VersionModal from "../modals/VersionModal";
 import AttachmentsPanel from "../panels/AttachmentsPanel";
@@ -11,6 +12,8 @@ import CommentsPanel from "../panels/CommentsPanel";
 import PresencePanel from "../panels/PresencePanel";
 import BlockList from "./BlockList";
 import EditorToolbar from "./EditorToolbar";
+
+const getUserId = (user) => user?._id || user?.id;
 
 /**
  * Main page editor
@@ -73,6 +76,10 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
   const autoVersionTimeoutRef = useRef(null);
   // Prevents an automatic version from being created immediately after the page first loads
   const hasPageLoadedRef = useRef(false);
+  // Handlers registered by each Block for same-block OT updates
+  const blockTextOpHandlersRef = useRef(new Map());
+  // Skip title autosave when applying a remote live title update
+  const titleSkipAutosaveRef = useRef(false);
   // boolean check if current page loads
   const isPageLoaded = Boolean(page);
 
@@ -119,7 +126,6 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
         setError("");
         setAttachments([]);
         setPermissions([]);
-        setActiveUsers([]);
         setSelectedCommentBlockId(null);
         setIsCommentsOpen(false);
         setIsAttachmentsOpen(false);
@@ -238,6 +244,66 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
       });
     });
 
+    // live block metadata updates (type changes, file uploads, checklist, indent)
+    socket.on("receive-block-content-live", ({ blockId, type, content }) => {
+      setBlocks((prevBlocks) =>
+        prevBlocks.map((block) =>
+          block._id === blockId ? { ...block, type, content } : block,
+        ),
+      );
+    });
+
+    // OT text operations for concurrent editing in the same block
+    socket.on("receive-block-text-op", ({ blockId, op, userId }) => {
+      if (getUserId(user)?.toString() === userId?.toString()) {
+        return;
+      }
+
+      const handler = blockTextOpHandlersRef.current.get(blockId);
+      if (handler) {
+        handler(op);
+      }
+
+      setBlocks((prevBlocks) =>
+        prevBlocks.map((block) => {
+          if (block._id !== blockId) {
+            return block;
+          }
+
+          const currentText = block.content?.text || "";
+          const nextText = applyTextOperation(currentText, op);
+
+          if (nextText === currentText) {
+            return block;
+          }
+
+          return {
+            ...block,
+            content: { ...block.content, text: nextText },
+          };
+        }),
+      );
+    });
+
+    // live page title while another user is still typing
+    socket.on("receive-page-title-live", ({ title: liveTitle, userId }) => {
+      if (getUserId(user)?.toString() === userId?.toString()) {
+        return;
+      }
+
+      titleSkipAutosaveRef.current = true;
+      setTitle(liveTitle);
+      setPage((currentPage) => {
+        if (!currentPage) {
+          return currentPage;
+        }
+
+        const updatedPage = { ...currentPage, title: liveTitle };
+        onPageUpdated(updatedPage);
+        return updatedPage;
+      });
+    });
+
     // listen for Socket.IO event sent by backend when a block is deleted
     // blockId = deleted block
     socket.on("receive-block-deleted", ({ blockId }) => {
@@ -308,7 +374,7 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
         // loop through every current user
         for (const current of prevUsers) {
           // if this user has the same ID as the user being checked, it means they're already in the typing list
-          if (current._id === user._id) {
+          if (getUserId(current) === getUserId(user)) {
             alreadyTyping = true;
             break;
           }
@@ -336,7 +402,7 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
         const newTypingUsers = [];
         for (const current of prevUsers) {
           // push all users that is not the user that stops typing
-          if (user._id !== current._id) {
+          if (getUserId(user) !== getUserId(current)) {
             newTypingUsers.push(current);
           }
         }
@@ -356,7 +422,7 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
         const newCursors = [];
         for (const current of prevCursors) {
           // keep every cursor besides the one belonging to the user who just moved
-          if (current.user._id !== user._id) {
+          if (getUserId(current.user) !== getUserId(user)) {
             newCursors.push(current);
           }
         }
@@ -377,6 +443,9 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
       socket.off("receive-page-updated");
       socket.off("receive-block-created");
       socket.off("receive-block-updated");
+      socket.off("receive-block-content-live");
+      socket.off("receive-block-text-op");
+      socket.off("receive-page-title-live");
       socket.off("receive-block-deleted");
       socket.off("receive-blocks-reordered");
       socket.off("receive-comments-updated");
@@ -471,6 +540,11 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
    * useAutosave Hook calls this function after user stops typing title for 800ms
    */
   const savePageTitle = async (newTitle) => {
+    if (titleSkipAutosaveRef.current) {
+      titleSkipAutosaveRef.current = false;
+      return;
+    }
+
     // call PUT /pages/:pageId to update page title
     const res = await api.put(`/pages/${pageId}`, {
       title: newTitle || "Untitled", // "Untitled" in case the user deleted everything
@@ -497,6 +571,16 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
   const handleTitleChange = (newTitle) => {
     // update React title state
     setTitle(newTitle);
+
+    if (!socket || !pageId || !canEdit) {
+      return;
+    }
+
+    socket.emit("page-title-live", {
+      pageId,
+      title: newTitle,
+      userId: getUserId(user),
+    });
   };
 
   /**
@@ -544,34 +628,37 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
   /**
    * Update a page block
    */
-  const updateBlock = async (blockId, updates) => {
-    // if this user is viewer, do nothing
-    if (!canEdit) {
-      return;
-    }
+  const updateBlock = useCallback(
+    async (blockId, updates) => {
+      // if this user is viewer, do nothing
+      if (!canEdit) {
+        return;
+      }
 
-    try {
-      // call PUT /api/blocks/:blockId to update block
-      const res = await api.put(`/blocks/${blockId}`, updates);
+      try {
+        // call PUT /api/blocks/:blockId to update block
+        const res = await api.put(`/blocks/${blockId}`, updates);
 
-      // set list of blocks
-      setBlocks((prevBlocks) =>
-        prevBlocks.map((block) =>
-          // if this blocks is the block that we just update, update the block from res
-          block._id === blockId ? res.data.block : block,
-        ),
-      );
+        // set list of blocks
+        setBlocks((prevBlocks) =>
+          prevBlocks.map((block) =>
+            // if this blocks is the block that we just update, update the block from res
+            block._id === blockId ? res.data.block : block,
+          ),
+        );
 
-      // frontend sends message to everyone that a block is updated
-      socket.emit("block-updated", { pageId, block: res.data.block });
-    } catch (error) {
-      // set error message
-      setError(error.response?.data?.message || "Failed to update block");
+        // frontend sends message to everyone that a block is updated
+        socket.emit("block-updated", { pageId, block: res.data.block });
+      } catch (error) {
+        // set error message
+        setError(error.response?.data?.message || "Failed to update block");
 
-      // throw error again so Block's useAutosave hoook can display its' "Save failed" status
-      throw error;
-    }
-  };
+        // throw error again so Block's useAutosave hoook can display its' "Save failed" status
+        throw error;
+      }
+    },
+    [canEdit, pageId, socket],
+  );
 
   /**
    * Copy a block
@@ -737,6 +824,66 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
   };
 
   /**
+   * Broadcast live block content on every keystroke (before DB autosave)
+   */
+  const emitBlockContentLive = useCallback(
+    (blockId, { type, content }) => {
+      if (!socket || !pageId || !canEdit) {
+        return;
+      }
+
+      socket.emit("block-content-live", {
+        pageId,
+        blockId,
+        type,
+        content,
+      });
+    },
+    [canEdit, pageId, socket],
+  );
+
+  /**
+   * Broadcast OT text operations for same-block concurrent editing
+   */
+  const emitBlockTextOp = useCallback(
+    (blockId, op) => {
+      if (!socket || !pageId || !canEdit) {
+        return;
+      }
+
+      socket.emit("block-text-op", {
+        pageId,
+        blockId,
+        op,
+        userId: getUserId(user),
+      });
+    },
+    [canEdit, pageId, socket, user],
+  );
+
+  /**
+   * Keep Editor block state aligned with live edits happening inside Block
+   */
+  const syncBlockInEditor = useCallback((blockId, { type, content }) => {
+    setBlocks((prevBlocks) =>
+      prevBlocks.map((block) =>
+        block._id === blockId ? { ...block, type, content } : block,
+      ),
+    );
+  }, []);
+
+  /**
+   * Let each Block register a handler for incoming OT text operations
+   */
+  const registerBlockTextOpHandler = useCallback((blockId, handler) => {
+    blockTextOpHandlersRef.current.set(blockId, handler);
+
+    return () => {
+      blockTextOpHandlersRef.current.delete(blockId);
+    };
+  }, []);
+
+  /**
    * Emit the latest comment threads to collaborators currently connected to this page
    */
   const emitCommentsUpdated = (threads) => {
@@ -896,6 +1043,13 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
       // send the file to backend with upload data and request headers
       const res = await api.post("/attachments/upload", uploadData, {
         headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      const attachmentsResponse = await api.get(`/attachments/page/${pageId}`);
+      setAttachments(attachmentsResponse.data.attachments);
+      socket.emit("attachments-updated", {
+        pageId,
+        attachments: attachmentsResponse.data.attachments,
       });
 
       return res.data.attachment;
@@ -1085,11 +1239,15 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
         onDeleteBlock={deleteBlock}
         onCopyBlock={copyBlock}
         onCreateBlockAfter={createBlockAfter}
-        onUpdateBlockIndent={updateBlockIndent}
+        onUpdateIndent={updateBlockIndent}
         onComment={openBlockComments}
         onTypingStarted={emitTypingStarted}
         onTypingStopped={emitTypingStopped}
         onCursorMoved={emitCursorMoved}
+        onContentLive={emitBlockContentLive}
+        onTextOp={emitBlockTextOp}
+        onSyncBlock={syncBlockInEditor}
+        onRegisterTextOpHandler={registerBlockTextOpHandler}
         onUploadFile={uploadBlockFile}
       />
 

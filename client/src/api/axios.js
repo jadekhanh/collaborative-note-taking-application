@@ -24,15 +24,18 @@ const api = axios.create({
  * Interceptor: every request has to pass interceptor before being sent to server
  * config = the request object that Axios about to send
  */
-api.interceptors.request.use((config) => {
-  // local storage = browser storage where frontend stores user token
-  const token = localStorage.getItem("token");
-  if (token) {
-    // add Authorization header
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+api.interceptors.request.use(
+  (config) => {
+    // local storage = browser storage where frontend stores user token
+    const token = localStorage.getItem("token");
+    if (token) {
+      // add Authorization header
+      config.headers.Authorization = `Bearer ${token}`;
+    }
 
-  return config;
-});
+    return config;
+  },
+  (error) => Promise.reject(error),
+);
 
 export default api;

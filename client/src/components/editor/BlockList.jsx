@@ -35,6 +35,11 @@ import Block from "./Block";
  * - onTypingStarted = a function called to Editor to tell other users this user started typing
  * - onTypingStopped = a function called to Editor to tell other users this user stopped typing
  * - onCursorMoved = a function called to Editor to send this user's cursor position
+ * - onContentLive = a function called to Editor to broadcast live keystroke updates
+ * - onContentLive = a function called to Editor to broadcast live block metadata updates
+ * - onTextOp = a function called to Editor to broadcast OT text operations
+ * - onSyncBlock = a function called to Editor to keep block state aligned locally
+ * - onRegisterTextOpHandler = a function called to Editor to register OT handlers
  * - onUploadFile = a function called to Editor to upload a file to block
  */
 const BlockList = ({
@@ -52,6 +57,10 @@ const BlockList = ({
   onTypingStarted,
   onTypingStopped,
   onCursorMoved,
+  onContentLive,
+  onTextOp,
+  onSyncBlock,
+  onRegisterTextOpHandler,
   onUploadFile,
 }) => {
   /**
@@ -210,6 +219,10 @@ const BlockList = ({
               onTypingStarted={onTypingStarted}
               onTypingStopped={onTypingStopped}
               onCursorMoved={onCursorMoved}
+              onContentLive={onContentLive}
+              onTextOp={onTextOp}
+              onSyncBlock={onSyncBlock}
+              onRegisterTextOpHandler={onRegisterTextOpHandler}
             />
           );
         })}
