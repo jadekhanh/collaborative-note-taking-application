@@ -50,6 +50,13 @@ const pageSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    // users who starred this page as a favorite
+    favoritedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
   },
   // automatically creates createdAt and updatedAt
   { timestamps: true },

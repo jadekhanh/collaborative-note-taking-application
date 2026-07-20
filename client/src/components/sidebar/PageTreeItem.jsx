@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { isPageFavorited } from "../../utils/pageSidebarStorage";
 /**
  * PageTreeItem = represents a page inside the sidebar
  * If the page as child pages, it also renders those children underneath itself
@@ -24,8 +25,11 @@ const PageTreeItem = ({
   page,
   depth,
   selectedPageId,
+  currentUserId,
+  isFavorited = false,
   onSelectPage,
   onCreatePage,
+  onToggleFavorite,
   canEdit,
 }) => {
   // a state that rememebers if this page's children are visible/expanded
@@ -92,6 +96,21 @@ const PageTreeItem = ({
 
         <span className="page-tree-title">{page.title || "Untitled"}</span>
 
+        <button
+          type="button"
+          className={`page-favorite-button ${isFavorited ? "is-favorited" : ""}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleFavorite?.(page._id);
+          }}
+          aria-label={
+            isFavorited ? "Remove from favorites" : "Add to favorites" // if page is favorited, the button is described as "remove from favorites", if not, other one
+          }
+        >
+          {/* if page is favorited, render the favorite icon, if not, render the non-favorite icon */}
+          {isFavorited ? "★" : "☆"}
+        </button>
+
         {/* Create a child page under this page, only visible to workspace editor or owner */}
         {canEdit && (
           <button
@@ -120,8 +139,11 @@ const PageTreeItem = ({
                 page={childPage}
                 depth={depth + 1}
                 selectedPageId={selectedPageId}
+                currentUserId={currentUserId}
+                isFavorited={isPageFavorited(childPage, currentUserId)}
                 onSelectPage={onSelectPage}
                 onCreatePage={onCreatePage}
+                onToggleFavorite={onToggleFavorite}
                 canEdit={canEdit}
               />
             ))}

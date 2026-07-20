@@ -19,6 +19,7 @@ import SearchModal from "../components/modals/SearchModal";
 import ArchivedPagesPanel from "../components/panels/ArchivedPagesPanel";
 import Sidebar from "../components/sidebar/Sidebar";
 import { useAuth } from "../context/AuthContext";
+import { recordRecentPage } from "../utils/pageSidebarStorage";
 
 /**
  * React component = a function that returns UI
@@ -89,6 +90,20 @@ const Workspace = () => {
 
     loadWorkspace();
   }, [workspaceId]);
+
+  /**
+   * Record the recently visited page
+   * useEffect() because we want to run the code whenever the component loads or when specified dependencies change
+   */
+  useEffect(() => {
+    // if the current user is not logged in, the workspace is not loaded, or the selected page is not set, do nothing
+    if (!currentUserId || !workspaceId || !selectedPageId) {
+      return;
+    }
+
+    // record current page as the recently visited page by calling recordRecentPage()
+    recordRecentPage(currentUserId, workspaceId, selectedPageId);
+  }, [currentUserId, workspaceId, selectedPageId]);
 
   /**
    * Handle create a page
@@ -167,6 +182,25 @@ const Workspace = () => {
 
       return remainingPages;
     });
+  };
+
+  /**
+   * Toggle whether the current user favorited a page
+   */
+  const handleToggleFavorite = async (pageId) => {
+    try {
+      // reset error message
+      setError("");
+
+      // update page favorite status by calling PATCH /api/pages/:pageId/favorite
+      const res = await api.patch(`/pages/${pageId}/favorite`);
+      // update the page list in the sidebar
+      handleUpdatePage(res.data.page);
+    } catch (error) {
+      setError(
+        error.response?.data?.message || "Failed to update page favorite",
+      );
+    }
   };
 
   /**
@@ -258,10 +292,12 @@ const Workspace = () => {
         workspace={workspace}
         pages={pages}
         selectedPageId={selectedPageId}
+        currentUserId={currentUserId}
         canEdit={canEditWorkspace}
         onSelectPage={setSelectedPageId}
         onCreatePage={handleCreatePage}
         onOpenSearch={() => setIsSearchOpen(true)}
+        onToggleFavorite={handleToggleFavorite}
       />
 
       <main className="workspace-main">

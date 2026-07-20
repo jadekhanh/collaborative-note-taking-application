@@ -11,6 +11,10 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useRef } from "react";
+import {
+  getVisibleBlocks,
+  headingHasCollapsibleContent,
+} from "../../utils/blockCollapse";
 import Block from "./Block";
 
 /**
@@ -22,6 +26,7 @@ import Block from "./Block";
  *
  * @params
  * - blocks = list of all blocks inside the current page
+ * - collapsedHeadingIds = list of heading block IDs that are collapsed
  * - canEdit = boolean check if the current user can edit the page (editor or owner)
  * - commentThreads = comment threads inside the page
  * - remoteCursors = locations of all users' cursors
@@ -35,15 +40,16 @@ import Block from "./Block";
  * - onTypingStarted = a function called to Editor to tell other users this user started typing
  * - onTypingStopped = a function called to Editor to tell other users this user stopped typing
  * - onCursorMoved = a function called to Editor to send this user's cursor position
- * - onContentLive = a function called to Editor to broadcast live keystroke updates
- * - onContentLive = a function called to Editor to broadcast live block metadata updates
+ * - onContentLive = a function called to Editor to broadcast immediate block metadata updates
  * - onTextOp = a function called to Editor to broadcast OT text operations
  * - onSyncBlock = a function called to Editor to keep block state aligned locally
  * - onRegisterTextOpHandler = a function called to Editor to register OT handlers
  * - onUploadFile = a function called to Editor to upload a file to block
+ * - onToggleHeadingCollapse = a function called to Editor to toggle the collapse state of a heading block
  */
 const BlockList = ({
   blocks = [],
+  collapsedHeadingIds = [],
   canEdit,
   commentThreads = [],
   remoteCursors = [],
@@ -62,6 +68,7 @@ const BlockList = ({
   onSyncBlock,
   onRegisterTextOpHandler,
   onUploadFile,
+  onToggleHeadingCollapse,
 }) => {
   /**
    * Drag sensors = cursor settings
@@ -150,6 +157,8 @@ const BlockList = ({
     }
   };
 
+  const visibleBlocks = getVisibleBlocks(blocks, collapsedHeadingIds);
+
   return (
     // DnDContext allows drag and drop for everything inside it
     <DndContext
@@ -159,10 +168,13 @@ const BlockList = ({
     >
       {/* tell dnd kit the blocks inside can be reordered */}
       <SortableContext
-        items={blocks.map((block) => block._id)}
+        items={visibleBlocks.map((block) => block._id)}
         strategy={verticalListSortingStrategy} // blocks are arranged vertically
       >
-        {blocks.map((block, blockIndex) => {
+        {visibleBlocks.map((block) => {
+          const blockIndex = blocks.findIndex(
+            (currentBlock) => currentBlock._id === block._id,
+          );
           /**
            * Calculate the number of this block if this block is a numbered block
            */
@@ -198,6 +210,12 @@ const BlockList = ({
               commentCount={blockCommentCount}
               numberedIndex={numberedIndex}
               canEdit={canEdit}
+              isHeadingCollapsible={headingHasCollapsibleContent(
+                blocks,
+                blockIndex,
+              )}
+              isHeadingCollapsed={collapsedHeadingIds.includes(block._id)}
+              onToggleHeadingCollapse={onToggleHeadingCollapse}
               remoteCursors={remoteCursors.filter(
                 (item) => item.cursor.blockId === block._id,
               )}

@@ -1,3 +1,4 @@
+import { isPageFavorited } from "../../utils/pageSidebarStorage";
 import PageTreeItem from "./PageTreeItem";
 
 /**
@@ -23,8 +24,10 @@ import PageTreeItem from "./PageTreeItem";
 const PageTree = ({
   pages = [],
   selectedPageId,
+  currentUserId,
   onSelectPage,
   onCreatePage,
+  onToggleFavorite,
   canEdit,
 }) => {
   /**
@@ -92,19 +95,20 @@ const PageTree = ({
     return <p className="sidebar-empty">No pages yet</p>;
   }
 
-  // return UI if there's pages
   return (
     <div className="page-tree">
-      {/* for each page in page tree */}
+      <h3 className="sidebar-section-title">Pages</h3>
       {pageTree.map((page) => (
-        // draw 1 page
         <PageTreeItem
           key={page._id}
           page={page} // pass page data
           depth={0} // top-level pages begin with depth = 0
           selectedPageId={selectedPageId} // tell every page which page is currently opened in editor
+          currentUserId={currentUserId} // pass the ID of the current user
+          isFavorited={isPageFavorited(page, currentUserId)} // pass whether this page is favorited by the current user
           onSelectPage={onSelectPage} // pass the function that opens page
           onCreatePage={onCreatePage} // pass the function that creates child page
+          onToggleFavorite={onToggleFavorite} // pass the function that toggles page as a favorite
           canEdit={canEdit} // pass whether this user is workspace owner or editor
         />
       ))}

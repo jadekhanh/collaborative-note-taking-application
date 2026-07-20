@@ -9,6 +9,7 @@ const {
   getArchivedPages,
   restorePage,
   getPagesSharedWithMe,
+  togglePageFavorite,
 } = require("../controllers/pageController");
 const {
   createPagePermission,
@@ -51,6 +52,9 @@ router.get("/:pageId", getPageById);
 
 // PATCH /api/pages/:pageId/archive
 router.patch("/:pageId/archive", archivePage);
+
+// PATCH /api/pages/:pageId/favorite
+router.patch("/:pageId/favorite", togglePageFavorite);
 
 // DELETE /api/pages/:pageId
 router.delete("/:pageId", deletePage);

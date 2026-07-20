@@ -215,6 +215,59 @@ button {
   color: #f7e5ec;
 }
 
+.sidebar-section {
+  margin-bottom: 16px;
+}
+
+.sidebar-section-title {
+  margin: 0 0 8px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b4b52;
+}
+
+.sidebar-section-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-section-page {
+  padding-left: 6px;
+}
+
+.page-favorite-button {
+  border: none;
+  background: transparent;
+  color: #888;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+.page-favorite-button.is-favorited,
+.page-favorite-button:hover {
+  color: #c99700;
+}
+
+.heading-collapse-toggle {
+  border: none;
+  background: transparent;
+  color: #666;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.heading-collapse-toggle:hover {
+  color: #222;
+}
+
 /* Editor */
 .editor {
   max-width: 850px;

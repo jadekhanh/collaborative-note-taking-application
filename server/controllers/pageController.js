@@ -506,6 +506,60 @@ const getPagesSharedWithMe = async (req, res) => {
   }
 };
 
+/**
+ * Toggle whether the current user favorited a page
+ */
+const togglePageFavorite = async (req, res) => {
+  try {
+    // extract pageId from req.params
+    const { pageId } = req.params;
+
+    // get page
+    const page = await Page.findById(pageId);
+    if (!page || page.isArchived) {
+      return res.status(404).json({ message: "Page not found" });
+    }
+
+    // check if this user has access to the page
+    const accessRole = await getPageRole(page, req.user._id);
+    if (!accessRole) {
+      return res.status(403).json({
+        message: "Do not have access to this page",
+      });
+    }
+
+    // check if this user already favorited the page
+    const userId = req.user._id.toString();
+    const alreadyFavorited = page.favoritedBy.some(
+      (favoriteUserId) => favoriteUserId.toString() === userId,
+    );
+
+    // if this user already favorited the page, remove them from the page'sfavoritedBy list
+    if (alreadyFavorited) {
+      page.favoritedBy = page.favoritedBy.filter(
+        (favoriteUserId) => favoriteUserId.toString() !== userId,
+      );
+    }
+    // if this user did not favorited the page, add them to the page's favoritedBy list
+    else {
+      page.favoritedBy.push(req.user._id);
+    }
+
+    // save the page
+    await page.save();
+
+    return res.status(200).json({
+      page,
+      isFavorited: !alreadyFavorited,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to toggle page favorite",
+      error: error.message,
+    });
+  }
+};
+
 // export functions
 module.exports = {
   createPage,
@@ -517,4 +571,5 @@ module.exports = {
   getArchivedPages,
   restorePage,
   getPagesSharedWithMe,
+  togglePageFavorite,
 };

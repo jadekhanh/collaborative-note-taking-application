@@ -4,6 +4,7 @@ import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 import { useSocket } from "../../context/SocketContext";
 import useAutosave from "../../hooks/useAutosave";
+import useEditorHistory from "../../hooks/useEditorHistory";
 import { applyTextOperation } from "../../utils/textOperations";
 import ShareModal from "../modals/ShareModal";
 import VersionModal from "../modals/VersionModal";
@@ -13,6 +14,7 @@ import PresencePanel from "../panels/PresencePanel";
 import BlockList from "./BlockList";
 import EditorToolbar from "./EditorToolbar";
 
+// get user ID from user
 const getUserId = (user) => user?._id || user?.id;
 
 /**
@@ -80,6 +82,13 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
   const blockTextOpHandlersRef = useRef(new Map());
   // Skip title autosave when applying a remote live title update
   const titleSkipAutosaveRef = useRef(false);
+  // Debounce undo snapshots while typing
+  const historyDebounceRef = useRef(null);
+  // Heading sections collapsed in the current page
+  const [collapsedHeadingIds, setCollapsedHeadingIds] = useState([]);
+  // useEditorHistory hook to manage editor history
+  const { resetHistory, pushHistory, undo, redo, isApplyingRef } =
+    useEditorHistory();
   // boolean check if current page loads
   const isPageLoaded = Boolean(page);
 
@@ -148,6 +157,104 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
       isCancelled = true;
     };
   }, [pageId]);
+
+  /**
+   * Create a snapshot of the current editor state for Undo feature
+   * useCallback because we want to avoid re-creating the function on every render
+   */
+  const createEditorSnapshot = useCallback(
+    () => ({
+      title,
+      blocks: blocks.map((block) => ({
+        ...block,
+        content: block.content ? { ...block.content } : {},
+      })),
+    }),
+    [title, blocks], // call this function when title or blocks change
+  );
+
+  /**
+   * Records the editor's current state in undo history
+   * Flow: take current title and blocks, and save them as a snapshot, give it to useEditorHistory hook to save it to undo history
+   * call this function before actions such as create/delete/copy/reorder/update block
+   * preserve the state before the action so Undo can restore it later
+   * useCallback because we want to avoid re-creating the function on every render
+   */
+  const recordHistoryPoint = useCallback(() => {
+    // if the editor is currently applying an Undo/Redo result, do nothing
+    if (isApplyingRef.current) {
+      return;
+    }
+
+    // push the current editor state to undo history
+    pushHistory(createEditorSnapshot());
+  }, [createEditorSnapshot, isApplyingRef, pushHistory]);
+
+  /**
+   * Records typing history only after the user pauses for 800ms
+   * useCallback because we want to avoid re-creating the function on every render
+   */
+  const scheduleHistoryPoint = useCallback(() => {
+    // if the editor is currently applying an Undo/Redo result or the user does not have edit permission, do nothing
+    if (isApplyingRef.current || !canEdit) {
+      return;
+    }
+
+    // clear the existing timeout if it exists
+    if (historyDebounceRef.current) {
+      clearTimeout(historyDebounceRef.current);
+    }
+
+    // set a new timeout to record the history point after 800ms
+    historyDebounceRef.current = setTimeout(() => {
+      // record the history point
+      recordHistoryPoint();
+    }, 800);
+  }, [canEdit, isApplyingRef, recordHistoryPoint]);
+
+  /**
+   * Records the current page ID in undo history
+   * useRef because we want to persist the value across renders
+   */
+  const historyPageRef = useRef(null);
+
+  /**
+   * Records the current page ID in undo/redo history when the page is loaded and resets UI when switching pages
+   * This is run when user selects a different page, when page finishes loading, when title or blocks change
+   */
+  useEffect(() => {
+    // if the selected page is not finished loading, do nothing
+    if (!page || page._id !== pageId) {
+      // historyPageRef is used to track the current page ID in undo/redo history
+      // set it to null to indicate that the current page is not loaded yet
+      historyPageRef.current = null;
+      // do nothing
+      return;
+    }
+
+    // do not run this effect more than once as page, title, blocks update
+    // only want to initialize history once per newly loaded page and not reset it after every edit
+    if (historyPageRef.current === pageId) {
+      return;
+    }
+
+    // mark the current page as initialized in undo/redo history
+    historyPageRef.current = pageId;
+    // create a snapshot of the current editor state
+    const snapshot = createEditorSnapshot();
+    // reset the undo history to the initial state: past = empty, current = snapshot, future = empty
+    resetHistory(snapshot);
+    // reset the collapsed heading IDs to the initial state
+    // clear the collapsed heading IDs since we do not want heading IDs from prev page remaining collapsed in the new one
+    setCollapsedHeadingIds([]);
+
+    // clear the existing timeout that automatically creates a snapshot if it exists
+    return () => {
+      if (historyDebounceRef.current) {
+        clearTimeout(historyDebounceRef.current);
+      }
+    };
+  }, [pageId, page, createEditorSnapshot, resetHistory]);
 
   /**
    * Run this code whenever socket, pageId, and user is rendered
@@ -255,28 +362,39 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
 
     // OT text operations for concurrent editing in the same block
     socket.on("receive-block-text-op", ({ blockId, op, userId }) => {
+      // if the user is the same as the user who sent the text operation, do nothing
       if (getUserId(user)?.toString() === userId?.toString()) {
         return;
       }
 
+      // get the text operation handler for the block
+      // text operation handler is a function that applies the text operation to the local content
       const handler = blockTextOpHandlersRef.current.get(blockId);
+      // if the text operation handler exists, apply the text operation to the local content
       if (handler) {
+        // apply the text operation to the local content
         handler(op);
       }
 
+      // update the local content
       setBlocks((prevBlocks) =>
         prevBlocks.map((block) => {
+          // if the block is not the block that received the text operation, do nothing
           if (block._id !== blockId) {
             return block;
           }
 
+          // get the current text of the block
           const currentText = block.content?.text || "";
+          // apply the text operation to the local content
           const nextText = applyTextOperation(currentText, op);
 
+          // if the text operation does not change the text, do nothing
           if (nextText === currentText) {
             return block;
           }
 
+          // update the local content
           return {
             ...block,
             content: { ...block.content, text: nextText },
@@ -287,18 +405,25 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
 
     // live page title while another user is still typing
     socket.on("receive-page-title-live", ({ title: liveTitle, userId }) => {
+      // if the user is the same as the user who sent the page title update, do nothing
       if (getUserId(user)?.toString() === userId?.toString()) {
         return;
       }
 
+      // skip autosave to prevent overwriting local edits while another user is still typing
       titleSkipAutosaveRef.current = true;
+      // update the local title
       setTitle(liveTitle);
+      // update the local page
       setPage((currentPage) => {
+        // if the current page is not loaded, do nothing
         if (!currentPage) {
           return currentPage;
         }
 
+        // create a new page with the updated title
         const updatedPage = { ...currentPage, title: liveTitle };
+        // notify Workspace that the page is updated
         onPageUpdated(updatedPage);
         return updatedPage;
       });
@@ -462,24 +587,27 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
    * Save new blocks order to MongoDB + Emit to other collaborators through Socket.IO
    * @param: already reorder blocks list
    */
-  const saveBlockOrder = async (reorderedBlocks) => {
-    // return a list of [{blockId, order},...]
-    const blocksToUpdate = reorderedBlocks.map((block, index) => ({
-      blockId: block._id,
-      order: index,
-    }));
+  const saveBlockOrder = useCallback(
+    async (reorderedBlocks) => {
+      // return a list of [{blockId, order},...]
+      const blocksToUpdate = reorderedBlocks.map((block, index) => ({
+        blockId: block._id,
+        order: index,
+      }));
 
-    // call PUT /blocks/page/:pageId/reorder to save new blocks list to backend to update MongoDB
-    await api.put(`/blocks/page/${pageId}/reorder`, {
-      blocks: blocksToUpdate,
-    });
+      // call PUT /blocks/page/:pageId/reorder to save new blocks list to backend to update MongoDB
+      await api.put(`/blocks/page/${pageId}/reorder`, {
+        blocks: blocksToUpdate,
+      });
 
-    // tell everyone else inside the page that blocks are reordered
-    socket.emit("blocks-reordered", {
-      pageId,
-      blocks: reorderedBlocks,
-    });
-  };
+      // tell everyone else inside the page that blocks are reordered
+      socket.emit("blocks-reordered", {
+        pageId,
+        blocks: reorderedBlocks,
+      });
+    },
+    [pageId, socket],
+  );
 
   /**
    * Handle drag ends
@@ -506,6 +634,9 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
     if (oldIndex === -1 || newIndex === -1) {
       return;
     }
+
+    // record the history point before reordering blocks
+    recordHistoryPoint();
 
     // get previous blocks
     const previousBlocks = blocks;
@@ -571,11 +702,15 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
   const handleTitleChange = (newTitle) => {
     // update React title state
     setTitle(newTitle);
+    // record the history point after changing title because user is typing
+    scheduleHistoryPoint();
 
+    // if the socket is not connected, the page ID is not set, or the user is not an editor, do nothing
     if (!socket || !pageId || !canEdit) {
       return;
     }
 
+    // broadcast the page title update to other users
     socket.emit("page-title-live", {
       pageId,
       title: newTitle,
@@ -606,6 +741,9 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
     }
 
     try {
+      // record the history point before creating a new block
+      recordHistoryPoint();
+
       // call POST /api/blocks to create new page block
       const res = await api.post("/blocks", {
         pageId,
@@ -670,6 +808,9 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
     }
 
     try {
+      // record the history point before copying a block
+      recordHistoryPoint();
+
       // call POST /api/blocks/:blockId/copy
       const res = await api.post(`/blocks/${blockId}/copy`);
 
@@ -694,6 +835,9 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
     }
 
     try {
+      // record the history point before deleting a block
+      recordHistoryPoint();
+
       // call DELETE /api/blocks/:blockId to delete a block
       await api.delete(`/blocks/${blockId}`);
 
@@ -780,7 +924,9 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
    * Open page-level comments
    */
   const openPageComments = () => {
+    // clear the selected comment block ID
     setSelectedCommentBlockId(null);
+    // open the comments
     setIsCommentsOpen(true);
   };
 
@@ -788,7 +934,9 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
    * Open comments attached to one block
    */
   const openBlockComments = (blockId) => {
+    // set the selected comment block ID
     setSelectedCommentBlockId(blockId);
+    // open the comments
     setIsCommentsOpen(true);
   };
 
@@ -828,10 +976,12 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
    */
   const emitBlockContentLive = useCallback(
     (blockId, { type, content }) => {
+      // if the socket is not connected, the page ID is not set, or the user is not an editor, do nothing
       if (!socket || !pageId || !canEdit) {
         return;
       }
 
+      // broadcast the block content live to other users
       socket.emit("block-content-live", {
         pageId,
         blockId,
@@ -847,10 +997,12 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
    */
   const emitBlockTextOp = useCallback(
     (blockId, op) => {
+      // if the socket is not connected, the page ID is not set, or the user is not an editor, do nothing
       if (!socket || !pageId || !canEdit) {
         return;
       }
 
+      // broadcast the OT text operation to other users
       socket.emit("block-text-op", {
         pageId,
         blockId,
@@ -864,20 +1016,30 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
   /**
    * Keep Editor block state aligned with live edits happening inside Block
    */
-  const syncBlockInEditor = useCallback((blockId, { type, content }) => {
-    setBlocks((prevBlocks) =>
-      prevBlocks.map((block) =>
-        block._id === blockId ? { ...block, type, content } : block,
-      ),
-    );
-  }, []);
+  const syncBlockInEditor = useCallback(
+    (blockId, { type, content }) => {
+      setBlocks((prevBlocks) =>
+        prevBlocks.map((block) =>
+          block._id === blockId ? { ...block, type, content } : block,
+        ),
+      );
+      // record the history point after changing block content because user is typing
+      scheduleHistoryPoint();
+    },
+    [scheduleHistoryPoint],
+  );
 
   /**
    * Let each Block register a handler for incoming OT text operations
+   * blockTextOpHandlersRef is a Map that stores the text operation handlers for each block
+   * Text operation handler is a function that applies the text operation to the local content
+   * Each block has its own text operation handler because each block has its own local content
    */
   const registerBlockTextOpHandler = useCallback((blockId, handler) => {
+    // set the text operation handler for the block
     blockTextOpHandlersRef.current.set(blockId, handler);
 
+    // delete the text operation handler when the block is unmounted
     return () => {
       blockTextOpHandlersRef.current.delete(blockId);
     };
@@ -931,6 +1093,9 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
     }
 
     try {
+      // record the history point before creating a new block
+      recordHistoryPoint();
+
       // get current position of current block inside block list
       const currentIndex = blocks.findIndex(
         (block) => block._id === currentBlockId,
@@ -1012,6 +1177,9 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
       return;
     }
 
+    // record the history point before updating block indentation level
+    recordHistoryPoint();
+
     // update block
     await updateBlock(blockId, {
       content: { ...block.content, indentLevel: newIndentLevel },
@@ -1028,6 +1196,9 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
     }
 
     try {
+      // record the history point before uploading a file to a block
+      recordHistoryPoint();
+
       // create FormData object to send to backend
       const uploadData = new FormData();
 
@@ -1061,6 +1232,160 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
       return null;
     }
   };
+
+  /**
+   * Persist the history snapshot to the database
+   */
+  const persistHistorySnapshot = useCallback(
+    async (snapshot) => {
+      // if there's no undo/redo snapshot, the user does not have edit permission, or the page is not loaded, do nothing
+      if (!snapshot || !canEdit || !pageId) {
+        return;
+      }
+
+      // set the isApplyingRef flag to true to indicate that the editor is applying an Undo/Redo result
+      isApplyingRef.current = true;
+      // set the titleSkipAutosaveRef flag to true to indicate that the title should not be autosaved
+      titleSkipAutosaveRef.current = true;
+
+      // convert the snapshot blocks to an ordered list of blocks
+      const orderedBlocks = snapshot.blocks.map((block, index) => ({
+        ...block,
+        order: index,
+      }));
+
+      // update the title and blocks in the editor
+      setTitle(snapshot.title);
+      setBlocks(orderedBlocks);
+
+      try {
+        // update the title in the database
+        const titleResponse = await api.put(`/pages/${pageId}`, {
+          title: snapshot.title || "Untitled",
+        });
+
+        // update the page in the editor
+        setPage(titleResponse.data.page);
+        // tell everyone else inside the page that the page was updated
+        onPageUpdated(titleResponse.data.page);
+        socket.emit("page-updated", {
+          pageId,
+          page: titleResponse.data.page,
+        });
+
+        // update the blocks in the database
+        for (const block of orderedBlocks) {
+          const blockResponse = await api.put(`/blocks/${block._id}`, {
+            type: block.type,
+            content: block.content,
+          });
+
+          // tell everyone else inside the page that the block was updated
+          socket.emit("block-updated", {
+            pageId,
+            block: blockResponse.data.block,
+          });
+        }
+
+        // save the block order to the database
+        await saveBlockOrder(orderedBlocks);
+      } catch (error) {
+        setError(error.response?.data?.message || "Failed to apply history");
+      } finally {
+        // set the isApplyingRef flag to false to indicate that the editor is not applying an Undo/Redo result
+        isApplyingRef.current = false;
+        // set the titleSkipAutosaveRef flag to false to indicate that the title should be autosaved
+        titleSkipAutosaveRef.current = false;
+      }
+    },
+    [canEdit, isApplyingRef, onPageUpdated, pageId, saveBlockOrder, socket],
+  );
+
+  /**
+   * Performs an undo operation: get the previous snapshot from undo history and applies it (persist it to the database)
+   * useCallback because we want to avoid re-creating the function on every render
+   */
+  const handleUndo = useCallback(async () => {
+    // get the previous snapshot from undo history and changes internal history state
+    // undo() comes from useEditorHistory() hook
+    const previousSnapshot = undo();
+    // if there is a previous snapshot, apply it to the editor
+    if (previousSnapshot) {
+      await persistHistorySnapshot(previousSnapshot);
+    }
+  }, [persistHistorySnapshot, undo]);
+
+  /**
+   * Performs a redo operation: get the next snapshot from redo history and applies it (persist it to the database)
+   * useCallback because we want to avoid re-creating the function on every render
+   */
+  const handleRedo = useCallback(async () => {
+    // get the next snapshot from redo history and changes internal history state
+    // redo() comes from useEditorHistory() hook
+    const nextSnapshot = redo();
+    // if there is a next snapshot, apply it to the editor
+    if (nextSnapshot) {
+      await persistHistorySnapshot(nextSnapshot);
+    }
+  }, [persistHistorySnapshot, redo]);
+
+  /**
+   * Toggles the collapse state of a heading block
+   * Adds/removes the heading block ID to/from the collapsedHeadingIds list
+   * useCallback because we want to avoid re-creating the function on every render
+   */
+  const toggleHeadingCollapse = useCallback((headingBlockId) => {
+    // if heading block ID is already in the collapsedHeadingIds list, remove it
+    setCollapsedHeadingIds((currentIds) => {
+      if (currentIds.includes(headingBlockId)) {
+        return currentIds.filter((id) => id !== headingBlockId);
+      }
+      // otherwise, add it to the list
+      return [...currentIds, headingBlockId];
+    });
+  }, []);
+
+  /**
+   * Listen for Cmd/Ctrl + Z (undo) and Cmd/Ctrl + Shift + Z (redo) shortcuts
+   */
+  useEffect(() => {
+    // browser passes the event object to the handler
+    const handleHistoryShortcut = async (event) => {
+      // if current user does not have editor access, do nothing
+      if (!canEdit) {
+        return;
+      }
+
+      // event.metaKey = Command on Mac
+      // event.ctrlKey = Ctrl on Windows/Linux
+      const isMod = event.metaKey || event.ctrlKey;
+      // if the modifier key is not pressed or the key is not Z, it's not Undo/Redo shortcut, do nothing
+      if (!isMod || event.key.toLowerCase() !== "z") {
+        return;
+      }
+
+      // prevent the default browser behavior of the shortcut key
+      event.preventDefault();
+
+      // if Shift key is pressed, perform a redo operation
+      // otherwise, perform an undo operation
+      if (event.shiftKey) {
+        await handleRedo();
+      } else {
+        await handleUndo();
+      }
+    };
+
+    // add event listener for the shortcut key
+    window.addEventListener("keydown", handleHistoryShortcut);
+
+    // cleanup function
+    // runs this before this effect runs again
+    // remove event listener for the shortcut key
+    return () => {
+      window.removeEventListener("keydown", handleHistoryShortcut);
+    };
+  }, [canEdit, handleRedo, handleUndo]);
 
   /**
    * A serialized representation / signature of the document content
@@ -1231,6 +1556,7 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
        */}
       <BlockList
         blocks={blocks}
+        collapsedHeadingIds={collapsedHeadingIds}
         commentThreads={commentThreads}
         canEdit={canEdit}
         remoteCursors={remoteCursors}
@@ -1249,6 +1575,7 @@ const Editor = ({ pageId, onPageUpdated, onPageArchive, onPageDeleted }) => {
         onSyncBlock={syncBlockInEditor}
         onRegisterTextOpHandler={registerBlockTextOpHandler}
         onUploadFile={uploadBlockFile}
+        onToggleHeadingCollapse={toggleHeadingCollapse}
       />
 
       {/* Only owners and editors may create new blocks */}
